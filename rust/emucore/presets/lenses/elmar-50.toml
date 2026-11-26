@@ -1,0 +1,15 @@
+id = "elmar-50"
+focal = 50
+fstop = 3.5
+[ui]
+name = "Elmar 50 · collapsible"
+note = "Leica-style pre-war uncoated lens: low contrast veil, dark corners, gentle glow on highlights"
+category = "Leica-style"
+color = "#8D8D8D"
+[optics]
+field = "none"
+glow = 0.12
+glow_radius = 0.01
+veil = 0.09
+vignette = 0.5
+ca_lateral = 0.002

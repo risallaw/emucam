@@ -1,0 +1,22 @@
+id = "lx-selenium"
+kind = "bw_negative"
+iso = 400
+[ui]
+name = "L · Selenium"
+note = "Leica-style toned B&W print: cool purple-brown blacks, warm paper highlights"
+category = "Leica-style"
+color = "#5D4037"
+[tone]
+mono = [0.30, 0.59, 0.11]
+contrast = [1.15, 1.15, 1.15]
+black = [0.015, 0.015, 0.015]
+white = [0.975, 0.975, 0.975]
+[print]
+shadow_tint = [0.018, 0.0, 0.022]
+highlight_tint = [0.012, 0.006, -0.008]
+[grain]
+amount = 0.14
+size_um = 12
+[halation]
+strength = 0.01
+tint = [1.0, 1.0, 1.0]

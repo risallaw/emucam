@@ -1,0 +1,19 @@
+id = "fx-akros-100"
+kind = "bw_negative"
+iso = 100
+[ui]
+name = "Akros 100"
+note = "Fuji-style fine-grain B&W: deep rich mids, smooth tonality, darkened skies"
+category = "Fuji-style"
+color = "#9E9E9E"
+[tone]
+mono = [0.40, 0.50, 0.10]
+contrast = [1.18, 1.18, 1.18]
+black = [0.012, 0.012, 0.012]
+white = [0.985, 0.985, 0.985]
+[grain]
+amount = 0.16
+size_um = 9
+[halation]
+strength = 0.01
+tint = [1.0, 1.0, 1.0]

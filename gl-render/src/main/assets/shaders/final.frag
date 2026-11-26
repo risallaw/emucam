@@ -110,7 +110,7 @@ void main() {
     {
         float sigmaTrue = uGrain.y / 36000.0 * uOutSize.x;
         float s = max(sigmaTrue, 0.5);
-        float amp = uGrain.x * 0.24 * clamp(sigmaTrue / 0.6, 0.15, 1.0) * 1.6;
+        float amp = uGrain.x * 0.18 * clamp(sigmaTrue / 0.6, 0.15, 1.0) * 1.6;
         vec2 gp = p / s;
         float frame = mod(uTime, 64.0);
         vec3 n0 = hash3(gp, frame) - 0.5;

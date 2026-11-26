@@ -80,7 +80,9 @@ internal class Quad {
 }
 
 /** Color render target (RGBA16F when renderable, RGBA8 fallback). */
-internal class Fbo(val width: Int, val height: Int, halfFloat: Boolean) {
+internal class Fbo(val width: Int, val height: Int, halfFloat: Boolean, mipmapped: Boolean = false) {
+    /** Mip levels allocated (1 = no mipmaps). Call [generateMips] after rendering. */
+    val levels: Int = if (mipmapped) 32 - Integer.numberOfLeadingZeros(maxOf(width, height)) else 1
     val texture: Int
     val framebuffer: Int
 
@@ -88,12 +90,11 @@ internal class Fbo(val width: Int, val height: Int, halfFloat: Boolean) {
         val ids = IntArray(1)
         GLES30.glGenTextures(1, ids, 0); texture = ids[0]
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, texture)
-        if (halfFloat) {
-            GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA16F, width, height, 0, GLES30.GL_RGBA, GLES30.GL_HALF_FLOAT, null)
-        } else {
-            GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA8, width, height, 0, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, null)
-        }
-        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR)
+        GLES30.glTexStorage2D(GLES30.GL_TEXTURE_2D, levels, if (halfFloat) GLES30.GL_RGBA16F else GLES30.GL_RGBA8, width, height)
+        GLES30.glTexParameteri(
+            GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER,
+            if (levels > 1) GLES30.GL_LINEAR_MIPMAP_LINEAR else GLES30.GL_LINEAR,
+        )
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
@@ -111,6 +112,12 @@ internal class Fbo(val width: Int, val height: Int, halfFloat: Boolean) {
     fun bind() {
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, framebuffer)
         GLES30.glViewport(0, 0, width, height)
+    }
+
+    fun generateMips() {
+        if (levels <= 1) return
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, texture)
+        GLES30.glGenerateMipmap(GLES30.GL_TEXTURE_2D)
     }
 
     fun release() {

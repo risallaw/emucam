@@ -140,3 +140,47 @@ mod tests {
         }
     }
 }
+
+/// Apply hue-selective bands in an opponent space (mean, a, b) where the hue
+/// angle is 0° red, 120° green, 240° blue. Neutral colors pass unchanged.
+pub fn hue_bands(c: [f32; 3], bands: &[crate::preset::HueBand]) -> [f32; 3] {
+    if bands.is_empty() {
+        return c;
+    }
+    const S3: f32 = 0.866_025_4; // sqrt(3)/2
+    let m = (c[0] + c[1] + c[2]) / 3.0;
+    let a = c[0] - 0.5 * (c[1] + c[2]);
+    let b = S3 * (c[1] - c[2]);
+    let chroma = (a * a + b * b).sqrt();
+    if chroma < 1e-5 {
+        return c;
+    }
+    let hue = b.atan2(a).to_degrees();
+    let neutral_guard = smoothstep(0.0, 0.15, chroma);
+    let (mut rot, mut sat, mut lum) = (0.0f32, 1.0f32, 0.0f32);
+    for band in bands {
+        let mut d = (hue - band.hue).rem_euclid(360.0);
+        if d > 180.0 {
+            d -= 360.0;
+        }
+        let wdt = band.width.max(1.0);
+        if d.abs() >= wdt {
+            continue;
+        }
+        let w = 0.5 * (1.0 + (std::f32::consts::PI * d / wdt).cos()) * neutral_guard;
+        rot += band.shift * w;
+        sat *= 1.0 + (band.sat - 1.0) * w;
+        lum += band.lum * w;
+    }
+    let (s, co) = rot.to_radians().sin_cos();
+    let sat = sat.max(0.0);
+    let (a2, b2) = ((a * co - b * s) * sat, (a * s + b * co) * sat);
+    let k = 1.0 + lum;
+    let m2 = m * k;
+    let (a2, b2) = (a2 * k, b2 * k);
+    [
+        m2 + a2 * (2.0 / 3.0),
+        m2 - a2 / 3.0 + b2 / (2.0 * S3) ,
+        m2 - a2 / 3.0 - b2 / (2.0 * S3),
+    ]
+}

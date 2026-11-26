@@ -1,0 +1,24 @@
+id = "cron-50"
+focal = 50
+fstop = 2.0
+[ui]
+name = "Cron 50 · Rigid"
+note = "Leica-style 1950s standard lens: sharp and clean with smooth, calm bokeh and soft corners"
+category = "Leica-style"
+color = "#CFD8DC"
+[[ui.controls]]
+key = "blur"
+label = "Aperture"
+min = 0.0
+max = 2.0
+default = 1.0
+step = 0.05
+[optics]
+field = "sweet_spot"
+s0 = 0.25
+falloff = 0.65
+rmax = 0.016
+aperture = { kind = "polygon", blades = 10, rotation = 0.0 }
+bubble = -0.15
+glow = 0.04
+vignette = 0.25

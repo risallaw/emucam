@@ -24,7 +24,7 @@ internal class PreviewRenderer(assets: AssetManager) {
     private var frame = 0f
 
     /** Number of bokeh taps (lowered under thermal pressure). */
-    @Volatile var taps = 40
+    @Volatile var taps = 48
 
     init {
         val ext = GLES30.glGetString(GLES30.GL_EXTENSIONS) ?: ""
@@ -45,7 +45,7 @@ internal class PreviewRenderer(assets: AssetManager) {
         val hh = (h / 2).coerceAtLeast(1)
         if (lin?.width == hw && lin?.height == hh) return
         listOfNotNull(lin, lens, blurA, blurB).forEach { it.release() }
-        lin = Fbo(hw, hh, halfFloat)
+        lin = Fbo(hw, hh, halfFloat, mipmapped = true)
         lens = Fbo(hw, hh, halfFloat)
         val bw = (w / 8).coerceAtLeast(1)
         val bh = (h / 8).coerceAtLeast(1)
@@ -102,6 +102,9 @@ internal class PreviewRenderer(assets: AssetManager) {
             bindTex(0, GLES11Ext.GL_TEXTURE_EXTERNAL_OES, oesTex); setInt("uCamera", 0)
         }
         quad.draw()
+
+        // prefiltered levels: sparse bokeh taps read a pre-blurred source (no speckle)
+        lin.generateMips()
 
         // 2. gather (bokeh)
         if (lensBlur) {

@@ -1,0 +1,24 @@
+id = "apd-56"
+focal = 56
+fstop = 1.2
+[ui]
+name = "56 APD · f/1.2"
+note = "Fuji-style apodization portrait lens: silky bokeh with feathered edges, no outlines"
+category = "Fuji-style"
+color = "#455A64"
+[[ui.controls]]
+key = "blur"
+label = "Aperture"
+min = 0.0
+max = 2.0
+default = 1.0
+step = 0.05
+[optics]
+field = "sweet_spot"
+s0 = 0.18
+falloff = 0.6
+rmax = 0.03
+aperture = { kind = "circle" }
+cats_eye = 0.3
+bubble = -0.9
+vignette = 0.2

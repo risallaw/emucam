@@ -24,4 +24,17 @@ class RecipeTest {
         assertEquals("tri-400", r.film)
         assertEquals(0.5f, r.params.grain)
     }
+
+    @Test
+    fun focusFollowsDeviceRotation() {
+        val p = UserParams(focusCenter = listOf(0.2f, 0.3f), focusAngle = 10f)
+        assertEquals(p, p.forCaptureRotation(0))
+        // top of the phone pointing left: screen right edge becomes the photo's top
+        assertEquals(listOf(0.3f, 0.8f), p.forCaptureRotation(1).focusCenter)
+        assertEquals(280f, p.forCaptureRotation(1).focusAngle)
+        assertEquals(listOf(0.7f, 0.2f), p.forCaptureRotation(3).focusCenter)
+        assertEquals(100f, p.forCaptureRotation(3).focusAngle)
+        val q = p.forCaptureRotation(2).focusCenter!!
+        assertEquals(0.8f, q[0], 1e-6f); assertEquals(0.7f, q[1], 1e-6f)
+    }
 }

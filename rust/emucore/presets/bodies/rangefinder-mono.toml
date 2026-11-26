@@ -1,0 +1,8 @@
+id = "rangefinder-mono"
+film = "lx-monochrom"
+lens = "cron-50"
+[ui]
+name = "Rangefinder Mono"
+note = "Leica-style B&W-only body with a clean 50 mm"
+category = "Camera"
+color = "#212121"

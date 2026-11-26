@@ -63,7 +63,7 @@ pub fn apply(img: &mut ImageF32, spec: &GrainSpec, user: f32, seed: u64, mono: b
     };
     let a_l = (1.0 - chroma).sqrt();
     let a_c = chroma.sqrt();
-    let amp = amount * 0.24 * grain_resolution_scale(spec, w);
+    let amp = amount * 0.18 * grain_resolution_scale(spec, w);
     img.par_map_pixels(|x, y, p| {
         let i = y * w + x;
         let n = lum.data[i];

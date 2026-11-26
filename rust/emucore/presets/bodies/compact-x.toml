@@ -1,0 +1,8 @@
+id = "compact-x"
+film = "fx-chrome-classic"
+lens = "x-23"
+[ui]
+name = "Compact X"
+note = "Fuji-style fixed-lens compact: documentary color and a 23 mm f/2"
+category = "Camera"
+color = "#C0C0C0"

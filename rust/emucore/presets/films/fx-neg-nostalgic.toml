@@ -1,0 +1,31 @@
+id = "fx-neg-nostalgic"
+kind = "color_negative"
+iso = 200
+[ui]
+name = "Neg Nostalgic"
+note = "Fuji-style 70s print: amber highlights, soft open shadows, rich warm reds"
+category = "Fuji-style"
+color = "#C98A3D"
+[tone]
+contrast = [0.96, 0.95, 0.92]
+pivot = [-0.10, -0.02, 0.10]
+black = [0.04, 0.035, 0.03]
+white = [0.975, 0.96, 0.92]
+crosstalk = [[1.0, -0.05, -0.02], [-0.03, 1.0, -0.03], [-0.02, -0.04, 1.0]]
+saturation = 1.0
+hue = [
+  { hue = 10, width = 40, sat = 1.1 },
+  { hue = 60, width = 40, shift = -6, sat = 1.05 },
+  { hue = 120, width = 50, shift = -10, sat = 0.85 },
+  { hue = 230, width = 50, sat = 0.85 },
+]
+[print]
+fade = 0.025
+shadow_tint = [0.004, 0.004, 0.0]
+highlight_tint = [0.020, 0.008, -0.016]
+[grain]
+amount = 0.18
+size_um = 13
+chroma = 0.25
+[halation]
+strength = 0.035

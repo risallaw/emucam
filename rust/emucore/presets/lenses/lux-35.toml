@@ -1,0 +1,29 @@
+id = "lux-35"
+focal = 35
+fstop = 1.4
+[ui]
+name = "Lux 35 · pre-asph"
+note = "Leica-style 'king of bokeh': dreamy glow wide open, busy-soft background, gentle swirl"
+category = "Leica-style"
+color = "#4E342E"
+[[ui.controls]]
+key = "blur"
+label = "Aperture"
+min = 0.0
+max = 2.0
+default = 1.0
+step = 0.05
+[optics]
+field = "sweet_spot"
+s0 = 0.22
+falloff = 0.6
+rmax = 0.022
+aperture = { kind = "polygon", blades = 10, rotation = 0.0 }
+swirl = 0.15
+cats_eye = 0.5
+bubble = 0.1
+glow = 0.32
+glow_radius = 0.009
+veil = 0.04
+vignette = 0.35
+ca_lateral = 0.0015

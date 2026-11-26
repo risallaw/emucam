@@ -1,0 +1,29 @@
+id = "fx-chrome-classic"
+kind = "slide"
+iso = 100
+[ui]
+name = "Chrome Classic"
+note = "Fuji-style documentary look: muted color, hard shadows, olive greens, cyan skies"
+category = "Fuji-style"
+color = "#7A8B6F"
+[tone]
+contrast = [1.16, 1.15, 1.14]
+pivot = [0.0, 0.0, -0.03]
+black = [0.012, 0.014, 0.018]
+white = [0.97, 0.965, 0.95]
+crosstalk = [[1.0, -0.03, -0.01], [-0.02, 1.0, -0.03], [-0.01, -0.03, 1.0]]
+saturation = 0.8
+hue = [
+  { hue = 0, width = 40, shift = 6, sat = 0.78, lum = -0.04 },
+  { hue = 60, width = 40, shift = -4, sat = 0.8 },
+  { hue = 120, width = 55, shift = -16, sat = 0.72, lum = -0.05 },
+  { hue = 235, width = 55, shift = -14, sat = 0.88, lum = -0.10 },
+]
+[print]
+shadow_tint = [-0.004, 0.002, 0.006]
+highlight_tint = [0.008, 0.004, -0.004]
+[grain]
+amount = 0.1
+size_um = 10
+[halation]
+strength = 0.012

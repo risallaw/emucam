@@ -1,0 +1,19 @@
+id = "lx-monochrom"
+kind = "bw_negative"
+iso = 320
+[ui]
+name = "L · Monochrom"
+note = "Leica-style dedicated B&W sensor: deep blacks, high contrast, almost grainless"
+category = "Leica-style"
+color = "#212121"
+[tone]
+mono = [0.33, 0.55, 0.12]
+contrast = [1.32, 1.32, 1.32]
+black = [0.0, 0.0, 0.0]
+white = [0.99, 0.99, 0.99]
+[grain]
+amount = 0.05
+size_um = 6
+[halation]
+strength = 0.0
+tint = [1.0, 1.0, 1.0]

@@ -1,0 +1,28 @@
+id = "fx-natural-1600"
+kind = "color_negative"
+iso = 1600
+[ui]
+name = "Natural 1600"
+note = "Fuji-style high-speed negative for available light: warm-neutral, soft, visible grain"
+category = "Fuji-style"
+color = "#8D6E63"
+[tone]
+contrast = [0.92, 0.92, 0.9]
+pivot = [-0.05, 0.0, 0.05]
+black = [0.035, 0.035, 0.04]
+white = [0.965, 0.96, 0.95]
+crosstalk = [[1.0, -0.05, -0.02], [-0.03, 1.0, -0.04], [-0.02, -0.05, 1.0]]
+saturation = 0.95
+hue = [
+  { hue = 120, width = 50, shift = 8, sat = 0.9 },
+]
+[print]
+fade = 0.02
+shadow_tint = [0.0, 0.006, 0.006]
+highlight_tint = [0.010, 0.004, -0.006]
+[grain]
+amount = 0.34
+size_um = 20
+chroma = 0.35
+[halation]
+strength = 0.04

@@ -166,6 +166,31 @@ pub struct ToneSpec {
     pub mono: [f32; 3],
     #[serde(default = "one")]
     pub saturation: f32,
+    /// Hue-selective adjustments (display space, after the curve), e.g. muted
+    /// reds or cyan-leaning blues. Neutrals are never affected.
+    #[serde(default)]
+    pub hue: Vec<HueBand>,
+}
+
+/// One hue band: centre hue in degrees (0 red, 60 yellow, 120 green, 180 cyan,
+/// 240 blue, 300 magenta), half-width, and what to do to colors inside it.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+pub struct HueBand {
+    pub hue: f32,
+    #[serde(default = "default_band_width")]
+    pub width: f32,
+    /// Hue rotation in degrees.
+    #[serde(default)]
+    pub shift: f32,
+    /// Chroma multiplier.
+    #[serde(default = "one")]
+    pub sat: f32,
+    /// Relative brightness change (−0.3 darkens by 30%).
+    #[serde(default)]
+    pub lum: f32,
+}
+fn default_band_width() -> f32 {
+    45.0
 }
 
 /// Print/finish stage, applied after grain in display space.

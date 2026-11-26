@@ -1,0 +1,28 @@
+id = "lx-classic"
+kind = "color_negative"
+iso = 200
+[ui]
+name = "L · Classic"
+note = "Leica-style classic rendering: restrained color, gentle contrast, warm deep reds"
+category = "Leica-style"
+color = "#B71C1C"
+[tone]
+contrast = [1.0, 1.0, 0.98]
+pivot = [-0.03, 0.0, 0.03]
+black = [0.02, 0.02, 0.025]
+white = [0.975, 0.97, 0.96]
+crosstalk = [[1.0, -0.04, -0.01], [-0.03, 1.0, -0.03], [-0.01, -0.04, 1.0]]
+saturation = 0.86
+hue = [
+  { hue = 0, width = 40, sat = 1.08, lum = -0.06 },
+  { hue = 120, width = 50, shift = -6, sat = 0.85 },
+  { hue = 230, width = 50, sat = 0.9, lum = -0.05 },
+]
+[print]
+shadow_tint = [0.002, 0.0, 0.004]
+highlight_tint = [0.008, 0.004, -0.004]
+[grain]
+amount = 0.08
+size_um = 10
+[halation]
+strength = 0.015

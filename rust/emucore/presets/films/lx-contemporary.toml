@@ -1,0 +1,23 @@
+id = "lx-contemporary"
+kind = "slide"
+iso = 100
+[ui]
+name = "L · Contemporary"
+note = "Leica-style modern look: crisp micro-contrast, saturated but natural, deep blues"
+category = "Leica-style"
+color = "#1565C0"
+[tone]
+contrast = [1.2, 1.18, 1.2]
+black = [0.008, 0.008, 0.012]
+white = [0.985, 0.985, 0.985]
+crosstalk = [[1.0, -0.06, -0.02], [-0.04, 1.0, -0.05], [-0.02, -0.06, 1.0]]
+saturation = 1.12
+hue = [
+  { hue = 235, width = 50, sat = 1.1, lum = -0.08 },
+  { hue = 20, width = 35, sat = 0.95 },
+]
+[grain]
+amount = 0.05
+size_um = 9
+[halation]
+strength = 0.01

@@ -51,7 +51,10 @@ EMUCAM_PROF=1 ./target/release/emucam apply big.jpg --lens sweet-50 -o x.jpg   #
 Everything is data in `rust/emucore/presets/`:
 
 - **Film** → `films/<id>.toml`: tone curve (`contrast`, `pivot`, `black/white`,
-  `crosstalk`), `print`, `grain`, `halation`, optional `[ir]`, optional `[[effects]]`.
+  `crosstalk`), per-hue bands (`hue = [{ hue = 120, shift = -15, sat = 0.7 }]`,
+  0° red · 120° green · 240° blue), `print`, `grain`, `halation`, optional `[ir]`,
+  optional `[[effects]]`. Fuji-style (`fx-*`) and Leica-style (`lx-*`) looks are
+  good templates.
 - **Lens** → `lenses/<id>.toml`: `[optics]` (`field` = none/uniform/sweet_spot/slice,
   `s0`, `falloff`, `rmax`, `aperture`, `swirl`, `cats_eye`, `bubble`, `onion`,
   `ca_lateral`, `ca_long`, `glow`, `veil`, `vignette`), UI `controls`, and

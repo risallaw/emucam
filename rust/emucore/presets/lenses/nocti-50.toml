@@ -1,0 +1,28 @@
+id = "nocti-50"
+focal = 50
+fstop = 0.95
+[ui]
+name = "Nocti 50 · f/0.95"
+note = "Leica-style night lens wide open: razor-thin focus, huge creamy bokeh, cat's-eye corners, faint glow"
+category = "Leica-style"
+color = "#263238"
+[[ui.controls]]
+key = "blur"
+label = "Aperture"
+min = 0.0
+max = 2.0
+default = 1.0
+step = 0.05
+[optics]
+field = "sweet_spot"
+s0 = 0.16
+falloff = 0.55
+rmax = 0.038
+aperture = { kind = "circle" }
+swirl = 0.12
+cats_eye = 0.7
+bubble = -0.25
+ca_long = 0.25
+glow = 0.15
+glow_radius = 0.01
+vignette = 0.45

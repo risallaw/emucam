@@ -2,6 +2,8 @@ package com.emucam.camera
 
 import android.content.Context
 import android.util.Log
+import android.view.OrientationEventListener
+import android.view.Surface
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.FocusMeteringAction
@@ -49,9 +51,28 @@ class CameraController(private val context: Context) {
     private var view: PreviewView? = null
     private var useEffect = true
 
+    /**
+     * Physical device rotation (Surface.ROTATION_*). The activity is locked to
+     * portrait, so we follow the sensor to save landscape shots upright.
+     */
+    @Volatile var deviceRotation: Int = Surface.ROTATION_0
+        private set
+
+    private val orientationListener = object : OrientationEventListener(context) {
+        override fun onOrientationChanged(deg: Int) {
+            if (deg == ORIENTATION_UNKNOWN) return
+            val r = rotationFor(deg, deviceRotation)
+            if (r != deviceRotation) {
+                deviceRotation = r
+                capture?.targetRotation = r
+            }
+        }
+    }
+
     fun bind(lifecycleOwner: LifecycleOwner, previewView: PreviewView) {
         owner = lifecycleOwner
         view = previewView
+        if (orientationListener.canDetectOrientation()) orientationListener.enable()
         val future = ProcessCameraProvider.getInstance(context)
         future.addListener({
             provider = future.get()
@@ -80,6 +101,7 @@ class CameraController(private val context: Context) {
             .setResolutionSelector(selector)
             .setCaptureMode(ImageCapture.CAPTURE_MODE_ZERO_SHUTTER_LAG)
             .setJpegQuality(95)
+            .setTargetRotation(deviceRotation)
             .build()
         val group = UseCaseGroup.Builder()
             .setViewPort(viewPort)
@@ -135,11 +157,33 @@ class CameraController(private val context: Context) {
     }
 
     fun release() {
+        orientationListener.disable()
         provider?.unbindAll()
         processor.release()
     }
 
     companion object {
         private const val TAG = "CameraController"
+
+        /**
+         * Sensor degrees → Surface rotation, with ±10° hysteresis around the
+         * 45° boundaries so the result doesn't flicker when held diagonally.
+         */
+        fun rotationFor(deg: Int, current: Int): Int {
+            val centre = when (current) {
+                Surface.ROTATION_270 -> 90
+                Surface.ROTATION_180 -> 180
+                Surface.ROTATION_90 -> 270
+                else -> 0
+            }
+            val diff = ((deg - centre + 540) % 360) - 180
+            if (kotlin.math.abs(diff) < 55) return current
+            return when (deg) {
+                in 45 until 135 -> Surface.ROTATION_270
+                in 135 until 225 -> Surface.ROTATION_180
+                in 225 until 315 -> Surface.ROTATION_90
+                else -> Surface.ROTATION_0
+            }
+        }
     }
 }

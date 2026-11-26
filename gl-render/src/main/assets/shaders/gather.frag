@@ -19,6 +19,10 @@ void main() {
     float aTap = PI * reach * reach / float(n);
     // per-pixel spiral rotation: turns structured sampling streaks into fine noise (hidden by grain)
     float jitter = hash3(P, 7.0).x * 6.2831853;
+    // Taps are ~reach*sqrt(pi/n) apart; read a mip level whose footprint covers
+    // that gap so each tap averages its neighbourhood instead of point-sampling.
+    // (source texel = 2 output px)
+    float spacing = reach * sqrt(PI / float(n));
     for (int i = 0; i < 64; i++) {
         if (i >= n) break;
         float fi = float(i);
@@ -26,8 +30,10 @@ void main() {
         float th = fi * 2.39996323 + jitter;
         vec2 d = reach * rho * vec2(cos(th), sin(th));
         vec2 S = P + d;
-        vec3 s = texture(uSrc, uvFromImgPx(S)).rgb;
         float r = max(coc(S), 0.5);
+        // footprint limited by the source's own blur so in-focus detail stays sharp
+        float lod = log2(max(min(spacing, r) * 0.5, 1.0));
+        vec3 s = textureLod(uSrc, uvFromImgPx(S), lod).rgb;
         if (length(d) > r + 1.0) continue;
         float w = kernelW(-d / r, S) / (r * r * uApArea) * aTap;
         acc += s * w;

@@ -1,0 +1,13 @@
+id = "x-23"
+focal = 23
+fstop = 2.0
+[ui]
+name = "X 23 · f/2"
+note = "Fuji-style compact lens wide open: crisp, with a soft glow on close subjects and highlights"
+category = "Fuji-style"
+color = "#9E9E9E"
+[optics]
+field = "none"
+glow = 0.18
+glow_radius = 0.007
+vignette = 0.2

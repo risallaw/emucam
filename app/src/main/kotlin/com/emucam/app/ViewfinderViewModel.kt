@@ -12,6 +12,7 @@ import com.emucam.camera.CameraState
 import com.emucam.develop.DevelopProgress
 import com.emucam.develop.Shot
 import com.emucam.gl.LiveParams
+import com.emucam.model.forCaptureRotation
 import com.emucam.model.Catalog
 import com.emucam.model.Recipe
 import kotlinx.coroutines.Dispatchers
@@ -172,7 +173,11 @@ class ViewfinderViewModel(private val app: EmucamApp) : ViewModel() {
     fun shutter() {
         viewModelScope.launch {
             val (shot, file) = app.store.newShot()
-            val r = recipe.value.copy(seed = Random.nextLong(0, 1L shl 32))
+            val base = recipe.value
+            val r = base.copy(
+                seed = Random.nextLong(0, 1L shl 32),
+                params = base.params.forCaptureRotation(camera.deviceRotation),
+            )
             app.store.saveRecipe(shot.id, r)
             ui.update { it.copy(flash = true) }
             try {

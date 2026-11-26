@@ -6,8 +6,8 @@ pub mod grain;
 pub mod halation;
 pub mod infrared;
 
-use crate::color::{kelvin_gains, luma, mat_mul, saturate, Mat3};
-use crate::preset::{FilmKind, FilmPreset, PrintSpec, ToneSpec};
+use crate::color::{hue_bands, kelvin_gains, luma, mat_mul, saturate, Mat3};
+use crate::preset::{FilmKind, FilmPreset, HueBand, PrintSpec, ToneSpec};
 use crate::recipe::UserParams;
 
 /// Log2 exposure range covered by the preview LUT shaper, relative to 0.18.
@@ -31,6 +31,7 @@ pub struct ToneXform {
     white: [f32; 3],
     mono: Option<[f32; 3]>,
     saturation: f32,
+    hue: Vec<HueBand>,
     print: PrintSpec,
     print_fade: f32,
     print_sat: f32,
@@ -85,6 +86,7 @@ impl ToneXform {
             white: t.white,
             mono,
             saturation: t.saturation * (1.0 + 0.15 * punch),
+            hue: t.hue.clone(),
             print: film.print.clone(),
             print_fade: (film.print.fade + (-punch).max(0.0) * 0.06).clamp(0.0, 0.4),
             print_sat: film.print.saturation.unwrap_or(1.0),
@@ -117,6 +119,9 @@ impl ToneXform {
         }
         if !self.is_mono && (self.saturation - 1.0).abs() > 1e-4 {
             y = saturate(y, self.saturation);
+        }
+        if !self.is_mono {
+            y = hue_bands(y, &self.hue);
         }
         y.map(|v| v.clamp(0.0, 1.0))
     }
@@ -169,6 +174,22 @@ mod tests {
                 prev = y;
             }
         }
+    }
+
+    #[test]
+    fn hue_bands_leave_neutrals_and_hit_target_hue() {
+        use crate::color::hue_bands;
+        let mute_red = [HueBand { hue: 0.0, width: 45.0, shift: 0.0, sat: 0.5, lum: 0.0 }];
+        let g = [0.4, 0.4, 0.4];
+        assert_eq!(hue_bands(g, &mute_red), g);
+        let red = hue_bands([0.8, 0.2, 0.2], &mute_red);
+        assert!((red[0] - 0.6).abs() < 1e-4 && (red[1] - 0.3).abs() < 1e-4, "{red:?}");
+        let blue = [0.2, 0.2, 0.8];
+        let b2 = hue_bands(blue, &mute_red);
+        assert!(b2.iter().zip(blue).all(|(x, y)| (x - y).abs() < 1e-6));
+        // shift blue toward cyan (hue 240 → 210)
+        let cyan = hue_bands(blue, &[HueBand { hue: 240.0, width: 60.0, shift: -30.0, sat: 1.0, lum: 0.0 }]);
+        assert!(cyan[1] > cyan[0] + 0.05, "{cyan:?}");
     }
 
     #[test]

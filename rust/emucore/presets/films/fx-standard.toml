@@ -1,0 +1,23 @@
+id = "fx-standard"
+kind = "slide"
+iso = 100
+[ui]
+name = "Standard 100F"
+note = "Fuji-style everyday slide: faithful color, clean contrast, crisp blues"
+category = "Fuji-style"
+color = "#2E7DBF"
+[tone]
+contrast = [1.22, 1.20, 1.22]
+black = [0.01, 0.01, 0.012]
+white = [0.985, 0.985, 0.98]
+crosstalk = [[1.0, -0.06, -0.02], [-0.04, 1.0, -0.05], [-0.02, -0.06, 1.0]]
+saturation = 1.1
+hue = [
+  { hue = 0, sat = 1.05 },
+  { hue = 240, shift = -6, sat = 1.08 },
+]
+[grain]
+amount = 0.08
+size_um = 9
+[halation]
+strength = 0.01

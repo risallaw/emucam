@@ -1,0 +1,12 @@
+id = "rangefinder-m"
+film = "lx-classic"
+lens = "lux-35"
+[ui]
+name = "Rangefinder M"
+note = "Leica-style street kit: classic color, glowing 35 mm wide open"
+category = "Camera"
+color = "#B71C1C"
+[[effects]]
+kind = "vignette"
+id = "vignette"
+strength = 0.2

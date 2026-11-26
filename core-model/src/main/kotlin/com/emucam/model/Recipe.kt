@@ -48,3 +48,27 @@ val EmuJson = Json {
     encodeDefaults = true
     explicitNulls = false
 }
+
+/**
+ * Map viewfinder-space focus geometry (portrait screen, y down) into the
+ * saved photo's frame when the device was held at [surfaceRotation]
+ * (0..3 = Surface.ROTATION_0/90/180/270). Sizes are diagonal-relative, so
+ * only the centre and angle change.
+ */
+fun UserParams.forCaptureRotation(surfaceRotation: Int): UserParams {
+    val r = ((surfaceRotation % 4) + 4) % 4
+    if (r == 0) return this
+    val c = focusCenter?.takeIf { it.size == 2 }?.let { (x, y) ->
+        when (r) {
+            1 -> listOf(y, 1f - x)
+            2 -> listOf(1f - x, 1f - y)
+            else -> listOf(1f - y, x)
+        }
+    } ?: focusCenter
+    val a = when (r) {
+        1 -> focusAngle - 90f
+        2 -> focusAngle + 180f
+        else -> focusAngle + 90f
+    }
+    return copy(focusCenter = c, focusAngle = ((a % 360f) + 360f) % 360f)
+}
