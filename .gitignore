@@ -11,3 +11,6 @@ captures/
 
 # local install builds (~170 MB with the bundled ML models) — never commit
 /dist/
+
+# IDE (VS Code Java/Kotlin) compile output
+bin/
