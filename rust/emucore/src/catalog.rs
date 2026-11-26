@@ -29,6 +29,14 @@ struct Entry<'a> {
     focal: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     fstop: Option<f32>,
+    /// Lens geometry for UI overlays (reticle): field, s0, falloff.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    optics: Option<serde_json::Value>,
+    /// Body defaults.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    film: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lens: Option<&'a str>,
     effects: Vec<&'a str>,
 }
 
@@ -111,6 +119,9 @@ impl Catalog {
                 iso: Some(f.iso),
                 focal: None,
                 fstop: None,
+                optics: None,
+                film: None,
+                lens: None,
                 effects: f.effects.iter().map(|e| e.key()).collect(),
             })
             .collect();
@@ -123,6 +134,14 @@ impl Catalog {
                 iso: None,
                 focal: Some(l.focal),
                 fstop: Some(l.fstop),
+                optics: Some(serde_json::json!({
+                    "field": l.optics.field,
+                    "s0": l.optics.s0,
+                    "falloff": l.optics.falloff,
+                    "blur": l.optics.rmax > 0.0 && l.optics.field != crate::preset::BlurField::None,
+                })),
+                film: None,
+                lens: None,
                 effects: l.effects.iter().map(|e| e.key()).collect(),
             })
             .collect();
@@ -135,6 +154,9 @@ impl Catalog {
                 iso: None,
                 focal: None,
                 fstop: None,
+                optics: None,
+                film: b.film.as_deref(),
+                lens: b.lens.as_deref(),
                 effects: b.effects.iter().map(|e| e.key()).collect(),
             })
             .collect();

@@ -208,8 +208,8 @@ impl Default for GrainSpec {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HalationSpec {
     pub strength: f32,
-    /// Linear threshold (1.0 ≈ +2.5 EV over mid grey).
-    #[serde(default = "one")]
+    /// Linear luma where halation starts (ramps to full at clipping, 1.0).
+    #[serde(default = "default_halation_threshold")]
     pub threshold: f32,
     /// Radius multiplier on the default 0.3/0.8/2 % of width kernel.
     #[serde(default = "one")]
@@ -218,12 +218,15 @@ pub struct HalationSpec {
     #[serde(default = "default_halation_tint")]
     pub tint: [f32; 3],
 }
+fn default_halation_threshold() -> f32 {
+    0.8
+}
 fn default_halation_tint() -> [f32; 3] {
     [1.0, 0.3, 0.02]
 }
 impl Default for HalationSpec {
     fn default() -> Self {
-        Self { strength: 0.0, threshold: 1.0, radius: 1.0, tint: default_halation_tint() }
+        Self { strength: 0.0, threshold: default_halation_threshold(), radius: 1.0, tint: default_halation_tint() }
     }
 }
 

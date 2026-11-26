@@ -53,6 +53,7 @@ pub fn params(res: &Resolved) -> PreviewParams {
         Aperture::Slit { ratio, rotation } => (3.0, *ratio, rotation.to_radians()),
     };
     u(&mut m, "uAperture", &[ap_kind, ap_a, ap_b]);
+    u(&mut m, "uApArea", &[crate::lens::aperture::area(&o.aperture)]);
     u(&mut m, "uSwirl", &[o.swirl]);
     u(&mut m, "uCatsEye", &[o.cats_eye]);
     u(&mut m, "uBubble", &[o.bubble]);

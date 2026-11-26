@@ -19,6 +19,6 @@ amount = 0.45
 size_um = 20
 [halation]
 strength = 0.35
-threshold = 0.7
+threshold = 0.6
 radius = 1.5
 tint = [1.0, 1.0, 1.0]

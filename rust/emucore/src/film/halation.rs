@@ -13,10 +13,14 @@ pub const LOBES: [(f32, f32); 3] = [(0.003, 0.5), (0.008, 0.35), (0.02, 0.15)];
 /// Per-channel radius ratio R:G:B.
 pub const CH_RADIUS: [f32; 3] = [1.4, 1.0, 0.7];
 
+/// Halation source: ramps from 0 at `threshold` to 1 at clipping (JPEG input
+/// is clipped at 1.0), and keeps growing for brighter (exposure-boosted or
+/// leaked) light, softly limited.
 #[inline]
 pub fn source(c: [f32; 3], threshold: f32) -> f32 {
-    let e = (luma(c) - threshold).max(0.0);
-    e / (1.0 + e)
+    let t = threshold.clamp(0.0, 0.98);
+    let e = (luma(c) - t).max(0.0) / (1.0 - t);
+    e / (1.0 + 0.25 * e)
 }
 
 pub fn apply(img: &mut ImageF32, spec: &HalationSpec, user: f32) {
