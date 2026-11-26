@@ -37,4 +37,12 @@ class LiveLoopTest {
         liveDepthLoop(frames, { frames.trySend(ByteArray(0)) }, 1) { ++n < 3 }
         assertEquals(3, n)
     }
+
+    @org.junit.Test fun thermalPeriodBacksOffWithHeat() {
+        org.junit.Assert.assertEquals(200L, thermalPeriod(200, 0))
+        org.junit.Assert.assertEquals(400L, thermalPeriod(200, 1))
+        org.junit.Assert.assertEquals(800L, thermalPeriod(200, 2))
+        org.junit.Assert.assertEquals(2_000L, thermalPeriod(200, 3))
+        org.junit.Assert.assertEquals(4_000L, thermalPeriod(500, 6))
+    }
 }

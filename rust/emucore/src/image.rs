@@ -79,6 +79,32 @@ impl ImageF32 {
         self.sample(u * self.w as f32, v * self.h as f32)
     }
 
+    /// Smooth (C2) cubic B-spline sample, normalized coordinates. Used to
+    /// upsample coarse blur levels: bilinear interpolation has kinks at every
+    /// texel edge, which a strong blur turns into a visible square grid.
+    pub fn sample_uv_smooth(&self, u: f32, v: f32) -> [f32; 3] {
+        let x = u * self.w as f32 - 0.5;
+        let y = v * self.h as f32 - 0.5;
+        let (x0, y0) = (x.floor(), y.floor());
+        let wx = bspline_weights(x - x0);
+        let wy = bspline_weights(y - y0);
+        let (x0, y0) = (x0 as isize, y0 as isize);
+        let mut o = [0.0f32; 3];
+        for (j, &wyj) in wy.iter().enumerate() {
+            let mut row = [0.0f32; 3];
+            for (i, &wxi) in wx.iter().enumerate() {
+                let p = self.get_clamped(x0 - 1 + i as isize, y0 - 1 + j as isize);
+                row[0] += p[0] * wxi;
+                row[1] += p[1] * wxi;
+                row[2] += p[2] * wxi;
+            }
+            o[0] += row[0] * wyj;
+            o[1] += row[1] * wyj;
+            o[2] += row[2] * wyj;
+        }
+        o
+    }
+
     /// Apply a per-pixel function in parallel, giving (x, y, &mut [f32;3]).
     pub fn par_map_pixels<F>(&mut self, f: F)
     where
@@ -185,4 +211,19 @@ impl MaskF32 {
     pub fn sample_uv(&self, u: f32, v: f32) -> f32 {
         self.sample(u * self.w as f32, v * self.h as f32)
     }
+}
+
+/// Uniform cubic B-spline weights for taps at -1, 0, 1, 2 given the
+/// fractional position `t` in [0, 1). They sum to 1 and are non-negative.
+#[inline]
+pub fn bspline_weights(t: f32) -> [f32; 4] {
+    let t2 = t * t;
+    let t3 = t2 * t;
+    let s = 1.0 - t;
+    [
+        s * s * s / 6.0,
+        (3.0 * t3 - 6.0 * t2 + 4.0) / 6.0,
+        (-3.0 * t3 + 3.0 * t2 + 3.0 * t + 1.0) / 6.0,
+        t3 / 6.0,
+    ]
 }

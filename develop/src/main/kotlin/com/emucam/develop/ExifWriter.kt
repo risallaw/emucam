@@ -3,7 +3,10 @@ package com.emucam.develop
 import androidx.exifinterface.media.ExifInterface
 import java.io.File
 
-/** Copies camera EXIF from the original to the developed photo and records the look. */
+/**
+ * Copies camera EXIF from the original to the developed photo and records the
+ * look. Works for JPEG (APP1) and PNG (ExifInterface writes an `eXIf` chunk).
+ */
 object ExifWriter {
     private val COPY = listOf(
         ExifInterface.TAG_MAKE, ExifInterface.TAG_MODEL,

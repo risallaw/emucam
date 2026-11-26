@@ -50,4 +50,32 @@ class RecipeTest {
         assertEquals(90f, r.params.focusAngle)
         assertEquals(1.5f, r.params.focusSize)
     }
+
+    @Test
+    fun withStockSwapsFilmKeepsLensControls() {
+        val r = Recipe(film = "portrait-400", lens = "helios-58", params = UserParams(blur = 2f, values = mapOf("swirl" to 3f)))
+        val n = r.withStock(null, "aero-ir", "helios-58", currentLens = "helios-58")
+        assertEquals("aero-ir", n.film)
+        assertEquals(r.params, n.params)
+    }
+
+    @Test
+    fun withStockNewLensResetsControls() {
+        val r = Recipe(film = "portrait-400", lens = "helios-58", params = UserParams(blur = 2f, exposure = 1f, values = mapOf("swirl" to 3f)))
+        val n = r.withStock(null, "portrait-400", "trioplan-100", currentLens = "helios-58")
+        assertEquals("trioplan-100", n.lens)
+        assertEquals(emptyMap<String, Float>(), n.params.values)
+        assertEquals(1f, n.params.blur)
+        assertEquals(1f, n.params.exposure)
+    }
+
+    @Test
+    fun withStockBodyClearsFilmAndLens() {
+        val r = Recipe(film = "portrait-400", lens = "helios-58", disabledEffects = listOf("leak"))
+        val n = r.withStock("toy-cam", null, null, currentLens = "helios-58")
+        assertEquals("toy-cam", n.body)
+        assertEquals(null, n.film)
+        assertEquals(null, n.lens)
+        assertEquals(emptyList<String>(), n.disabledEffects)
+    }
 }

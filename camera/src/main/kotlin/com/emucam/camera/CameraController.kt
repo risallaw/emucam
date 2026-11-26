@@ -6,7 +6,6 @@ import android.view.OrientationEventListener
 import android.view.Surface
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
-import androidx.camera.core.ExperimentalZeroShutterLag
 import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -100,7 +99,6 @@ class CameraController(private val context: Context) {
         rebind()
     }
 
-    @androidx.annotation.OptIn(markerClass = [ExperimentalZeroShutterLag::class])
     private fun rebind() {
         val p = provider ?: return
         val o = owner ?: return
@@ -109,12 +107,21 @@ class CameraController(private val context: Context) {
         val selector = ResolutionSelector.Builder()
             .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
             .build()
-        val preview = Preview.Builder().setResolutionSelector(selector).build().also {
+        val preview = Preview.Builder()
+            .setResolutionSelector(selector)
+            // 24 fps viewfinder: the camera HAL's CPU cost scales with frame
+            // rate; 30 fps kept it at ~110-170 % CPU (heat). CameraX picks the
+            // closest range the device supports.
+            .setTargetFrameRate(PREVIEW_FPS)
+            .build().also {
             it.surfaceProvider = v.surfaceProvider
         }
         val cap = ImageCapture.Builder()
             .setResolutionSelector(selector)
-            .setCaptureMode(ImageCapture.CAPTURE_MODE_ZERO_SHUTTER_LAG)
+            // not ZERO_SHUTTER_LAG: ZSL keeps a ring buffer of full 12 MP frames
+            // streaming at 30 fps while the viewfinder is open (camera HAL at
+            // ~226 % CPU, CPU ~88 °C after a few minutes on the Xiaomi 15 Ultra)
+            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
             .setJpegQuality(95)
             .setTargetRotation(deviceRotation)
             .build()
@@ -203,3 +210,6 @@ class CameraController(private val context: Context) {
         }
     }
 }
+
+/** Viewfinder frame rate (see [CameraController.rebind]). */
+private val PREVIEW_FPS = android.util.Range(24, 24)

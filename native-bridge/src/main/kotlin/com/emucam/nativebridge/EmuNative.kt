@@ -17,6 +17,10 @@ object EmuNative {
     const val STATUS_FAILED = 2
     const val STATUS_CANCELLED = 3
 
+    /** `format` codes for [developStartOut]. */
+    const val FORMAT_JPEG = 0
+    const val FORMAT_PNG = 1
+
     @JvmStatic external fun version(): String
 
     /** `{films:[...], lenses:[...], bodies:[...], shapes:[...], effect_kinds:[...]}` */
@@ -59,6 +63,16 @@ object EmuNative {
         depth: FloatArray?, depthW: Int, depthH: Int, depthKind: Int,
         veg: FloatArray?, vegClasses: Int, vegW: Int, vegH: Int,
     ): Long
+    /**
+     * Like [developStartAux], choosing the output container: [format] 0 =
+     * JPEG at [quality] (50..100, always 4:4:4), 1 = 8-bit PNG ([quality]
+     * ignored). Either map may be null. Free the handle with [developFree].
+     */
+    @JvmStatic external fun developStartOut(
+        jpeg: ByteArray, recipeJson: String, maxDim: Int, quality: Int, format: Int,
+        depth: FloatArray?, depthW: Int, depthH: Int, depthKind: Int,
+        veg: FloatArray?, vegClasses: Int, vegW: Int, vegH: Int,
+    ): Long
     @JvmStatic external fun developProgress(handle: Long): Float
     @JvmStatic external fun developStatus(handle: Long): Int
     @JvmStatic external fun developResult(handle: Long): ByteArray
@@ -74,6 +88,17 @@ object EmuNative {
 
     /** Depth-network input tensor (ImageNet-normalised) for a JPEG; landscape shots are rotated to portrait. */
     @JvmStatic external fun depthInput(jpeg: ByteArray, width: Int, height: Int, nchw: Boolean): FloatArray
+
+    /**
+     * Boosted-depth inputs: the whole-frame tensor followed by [depthTiles]
+     * zoomed detail-tile tensors, concatenated. Run the network on each chunk
+     * and pass the outputs, concatenated in order, as the depth array of
+     * developStart* — thin objects (caps, poles, handles) then keep their depth.
+     */
+    @JvmStatic external fun depthInputBoosted(jpeg: ByteArray, width: Int, height: Int, nchw: Boolean): FloatArray
+
+    /** Number of detail tiles in boosted depth. */
+    @JvmStatic external fun depthTiles(): Int
 
     /** Raw portrait depth output → nearness (0 far … 1 near), or null if unusable. */
     @JvmStatic external fun nearness(raw: FloatArray, width: Int, height: Int, kind: Int): FloatArray?

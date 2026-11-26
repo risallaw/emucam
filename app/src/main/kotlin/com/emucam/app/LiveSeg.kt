@@ -7,6 +7,7 @@ import com.emucam.depth.DepthModel
 import com.emucam.depth.PreviewTensor
 import com.emucam.depth.UprightUpscaler
 import com.emucam.depth.liveDepthLoop
+import com.emucam.depth.thermalPeriod
 import com.emucam.gl.EmuSurfaceProcessor
 import com.emucam.gl.LIVE_DEPTH_SIZE
 import com.emucam.gl.LIVE_VEG_SIZE
@@ -38,6 +39,7 @@ class LiveSeg(
 ) {
     private val model = DepthModel.SEGMENT
     private val estimator = DepthEstimator(context, model, idleMillis = 10_000)
+    private val power = context.getSystemService(android.os.PowerManager::class.java)
     private val frames = Channel<ByteArray>(Channel.CONFLATED)
     private val tap = processor.frames.add { frames.trySend(it) }
 
@@ -77,7 +79,7 @@ class LiveSeg(
     private suspend fun loop() {
         // buffers live only while enabled (the tensor alone is 12 MB)
         val up = UprightUpscaler(LIVE_DEPTH_SIZE, model.width)
-        liveDepthLoop(frames, tap::request, PERIOD_MS) { rgba -> step(up, rgba) }
+        liveDepthLoop(frames, tap::request, { thermalPeriod(PERIOD_MS, power.currentThermalStatus) }) { rgba -> step(up, rgba) }
     }
 
     /** One frame → vegetation map. Never throws (except cancellation); false = stop for good. */

@@ -225,3 +225,64 @@ fun GlyphButton(glyph: String, onClick: () -> Unit, modifier: Modifier = Modifie
         Text(glyph, style = Emu.Mono.copy(color = if (active) Emu.Bone else Emu.Muted))
     }
 }
+
+/**
+ * Labelled round action (share, delete…): a 52dp glyph button over an
+ * edge-code label, so the action is readable without guessing icons.
+ */
+@Composable
+fun ActionButton(
+    glyph: String,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    accent: Color = Emu.Bone,
+) {
+    val tint = if (enabled) accent else Emu.Muted.copy(alpha = 0.4f)
+    Column(
+        modifier
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 6.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            Modifier
+                .size(52.dp)
+                .clip(CircleShape)
+                .background(Emu.Graphite)
+                .border(1.dp, if (enabled) accent.copy(alpha = 0.5f) else Emu.Line, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(glyph, style = Emu.Title.copy(color = tint))
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(label.uppercase(), style = Emu.Label.copy(color = tint), maxLines = 1)
+    }
+}
+
+/** Full-width primary action (one per surface), filled with [accent]. */
+@Composable
+fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, accent: Color = Emu.Amber, enabled: Boolean = true) {
+    Box(
+        modifier
+            .fillMaxWidth()
+            .height(52.dp)
+            .clip(RoundedCornerShape(26.dp))
+            .background(if (enabled) accent else Emu.GraphiteHi)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text.uppercase(), style = Emu.Title.copy(color = if (enabled) Emu.Ink else Emu.Muted))
+    }
+}
+
+/** Thin darkroom progress bar (amber on graphite); null = indeterminate-looking empty track. */
+@Composable
+fun DevelopBar(progress: Float?, modifier: Modifier = Modifier, color: Color = Emu.Amber) {
+    Canvas(modifier.fillMaxWidth().height(3.dp)) {
+        drawRect(Emu.Line)
+        if (progress != null) drawRect(color, size = size.copy(width = size.width * progress.coerceIn(0f, 1f)))
+    }
+}

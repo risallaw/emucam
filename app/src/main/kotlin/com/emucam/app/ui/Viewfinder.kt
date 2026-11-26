@@ -219,7 +219,7 @@ private fun LastShotThumb(s: UiState, vm: ViewfinderViewModel) {
     val ctx = LocalContext.current
     val app = ctx.applicationContext as EmucamApp
     val bmp = produceState<ImageBitmap?>(null, last?.id, last?.state) {
-        value = last?.takeIf { it.state == ShotState.DONE }?.let { loadThumb(app.store.developed(it.id), 160) }
+        value = last?.takeIf { it.state == ShotState.DONE }?.let { loadThumb(app.store.developed(it), 160) }
     }.value
     Box(
         Modifier.size(44.dp).clip(RoundedCornerShape(6.dp)).background(Emu.Graphite).border(1.dp, if (s.developing != null) Emu.Amber else Emu.Line, RoundedCornerShape(6.dp)).clickable { vm.showGallery(true) },
@@ -266,7 +266,7 @@ private fun FilmPanel(s: UiState, vm: ViewfinderViewModel) {
     }
 }
 
-private fun categoryOrder(c: String) = when (c) {
+internal fun categoryOrder(c: String) = when (c) {
     "Infrared" -> 0
     "Color negative" -> 1
     "Slide" -> 2

@@ -54,4 +54,15 @@ class CachedInferenceTest {
         val f = tmp.newFile("e").apply { writeBytes(ByteArray(5)) }
         assertArrayEquals(FloatArray(4) { 9f }, infer(f) { FloatArray(4) { 9f } }, 0f)
     }
+
+    @Test fun runChunksConcatenatesPassesInOrder() = runBlocking {
+        val out = DevelopQueue.runChunks(floatArrayOf(1f, 2f, 3f, 4f, 5f, 6f), 3) { c -> floatArrayOf(c[0] * 10, c[1] * 10) }
+        assertEquals(listOf(10f, 20f, 30f, 40f, 50f, 60f), out!!.toList())
+    }
+
+    @Test fun runChunksFailsWhenAnyPassFails() = runBlocking {
+        var calls = 0
+        val out = DevelopQueue.runChunks(FloatArray(4), 2) { calls++; if (calls == 2) null else it }
+        assertNull(out)
+    }
 }

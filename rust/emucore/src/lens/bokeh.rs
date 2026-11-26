@@ -529,6 +529,37 @@ fn dilate(m: &MaskF32, pick: fn(f32, f32) -> f32, init: f32) -> MaskF32 {
     o
 }
 
+/// Max over a (2r+1)² square, separable.
+fn max_filter(m: &MaskF32, r: usize) -> MaskF32 {
+    let (w, h) = (m.w, m.h);
+    let mut tmp = MaskF32::new(w, h);
+    tmp.data
+        .par_chunks_exact_mut(w)
+        .enumerate()
+        .for_each(|(y, row)| {
+            let src = &m.data[y * w..(y + 1) * w];
+            for (x, v) in row.iter_mut().enumerate() {
+                *v = src[x.saturating_sub(r)..(x + r + 1).min(w)]
+                    .iter()
+                    .fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+            }
+        });
+    let mut out = MaskF32::new(w, h);
+    out.data
+        .par_chunks_exact_mut(w)
+        .enumerate()
+        .for_each(|(y, row)| {
+            for (x, v) in row.iter_mut().enumerate() {
+                let mut acc = f32::NEG_INFINITY;
+                for yy in y.saturating_sub(r)..(y + r + 1).min(h) {
+                    acc = acc.max(tmp.data[yy * w + x]);
+                }
+                *v = acc;
+            }
+        });
+    out
+}
+
 /// Render lens blur. Returns the input unchanged when the lens has no blur.
 pub fn render(img: &ImageF32, optics: &LensOptics, g: &Geometry) -> ImageF32 {
     render_with_depth(img, optics, g, None)
@@ -723,7 +754,7 @@ pub fn render_with_depth(
 
     // Levels are gathered; free 12 B/px before the composite copy.
     drop(hdr);
-    let composite = |p: &mut [f32], r: f32, u: f32, v: f32, x: usize, y: usize| {
+    let composite = |p: &mut [f32], r: f32, t: f32, u: f32, v: f32, x: usize, y: usize| {
         // Cross-fade levels: level i covers r ≤ rmax·factor_i (full-res px).
         let mut col = [0.0f32; 3];
         let mut remaining = 1.0f32;
@@ -741,7 +772,7 @@ pub fn render_with_depth(
                     let j = (y * w + x) * 3;
                     [lout.img.data[j], lout.img.data[j + 1], lout.img.data[j + 2]]
                 } else {
-                    lout.img.sample_uv(u, v)
+                    lout.img.sample_uv_smooth(u, v)
                 };
                 for ch in 0..3 {
                     col[ch] += c[ch] * take;
@@ -752,20 +783,52 @@ pub fn render_with_depth(
                 break;
             }
         }
-        let t = smoothstep(0.5, 1.5, r);
         let m = col[0].max(col[1]).max(col[2]);
         let f = if m > HL_KNEE { compress(m, k) / m } else { 1.0 };
         for ch in 0..3 {
             p[ch] = p[ch] + (col[ch] * f - p[ch]) * t;
         }
     };
+    // Sharp → blurred blend weight per pixel. With a depth map the CoC jumps
+    // from 0 to its full value across one pixel at object edges, and the
+    // upsampled depth edge is pixel-jagged and speckled there, so a hard
+    // per-pixel switch draws a staircase / dotted outline around every
+    // subject. Feather the switch over a few pixels (like a portrait-mode
+    // matte) and give the feathered subject-side pixels the blur of their
+    // blurred neighbours so they have something to blend toward.
+    let feather = if depth.is_some() {
+        (w.max(h) as f32 / 900.0).round().max(1.0) as usize
+    } else {
+        0
+    };
+    let (alpha, coc_blend) = if feather > 0 {
+        let a: Vec<f32> = coc_full
+            .data
+            .iter()
+            .map(|&r| smoothstep(0.5, 1.5, r))
+            .collect();
+        let a = crate::depth::box_mean(&a, w, h, feather);
+        (Some(a), Some(max_filter(&coc_full, feather)))
+    } else {
+        (None, None)
+    };
     // Composite per pixel by its own CoC, then lay the near field over it.
     let mut out = img.clone();
     out.par_map_pixels(|x, y, p| {
         let (u, v) = ((x as f32 + 0.5) / w as f32, (y as f32 + 0.5) / h as f32);
-        let r = coc_full.data[y * w + x];
-        if r >= 0.5 {
-            composite(p, r, u, v, x, y);
+        let i = y * w + x;
+        let r = coc_full.data[i];
+        match (&alpha, &coc_blend) {
+            (Some(a), Some(cb)) => {
+                if a[i] > 1e-3 {
+                    composite(p, r.max(cb.data[i]).max(0.5), a[i], u, v, x, y);
+                }
+            }
+            _ => {
+                if r >= 0.5 {
+                    composite(p, r, smoothstep(0.5, 1.5, r), u, v, x, y);
+                }
+            }
         }
         // Near field: nearer blurred content partly covers this pixel.
         let mut nf = [0.0f32; 4];

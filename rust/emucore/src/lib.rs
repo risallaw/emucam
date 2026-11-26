@@ -62,7 +62,10 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub struct DevelopOptions {
     /// Downscale so the long edge ≤ this (None = full resolution).
     pub max_dim: Option<usize>,
+    /// JPEG quality (1..=100); ignored for PNG.
     pub jpeg_quality: u8,
+    /// Output container (JPEG by default).
+    pub format: io::OutputFormat,
     /// Raw depth-network output for this photo (see [`depth`]).
     pub depth: Option<RawDepth>,
     /// Raw segmentation logits for this photo (see [`seg`]); infrared films
@@ -75,13 +78,15 @@ impl Default for DevelopOptions {
         Self {
             max_dim: None,
             jpeg_quality: 92,
+            format: io::OutputFormat::Jpeg,
             depth: None,
             veg: None,
         }
     }
 }
 
-/// Raw output of a depth network, in its (portrait) tensor layout.
+/// Raw output of a depth network, in its (portrait) tensor layout: one
+/// `w`×`h` map, or the boosted set (see [`depth_input_boosted_jpeg`]).
 #[derive(Clone, Debug)]
 pub struct RawDepth {
     pub w: usize,
@@ -108,7 +113,39 @@ pub fn depth_input_jpeg(input: &[u8], layout: depth::ModelLayout) -> Result<Vec<
     Ok(depth::model_input(&img, layout))
 }
 
-/// Decode → render → encode. The main entry point for capture.
+/// Decode a JPEG and build the boosted-depth inputs: the whole-frame tensor
+/// followed by one per [`depth::detail_tiles`] tile, concatenated. Their
+/// outputs, concatenated in the same order, go in [`RawDepth::data`].
+pub fn depth_input_boosted_jpeg(
+    input: &[u8],
+    layout: depth::ModelLayout,
+) -> Result<Vec<f32>, Error> {
+    layout.validate().map_err(Error::Recipe)?;
+    let img = io::decode(input)?;
+    let mut out = depth::model_input(&img, layout);
+    for r in depth::detail_tiles() {
+        out.extend(depth::model_input_region(&img, layout, r));
+    }
+    Ok(out)
+}
+
+/// Raw depth → nearness for a `img_w`×`img_h` photo. `data` holds one
+/// `w`×`h` output (whole frame) or, for boosted depth, the whole-frame output
+/// followed by the detail-tile outputs. None when unusable.
+fn near_from_raw(d: &RawDepth, img_w: usize, img_h: usize) -> Option<image::MaskF32> {
+    let n = d.w.checked_mul(d.h)?;
+    let tiles = depth::TILE_GRID * depth::TILE_GRID;
+    if n > 0 && d.data.len() == n * (1 + tiles) {
+        let (g, rest) = d.data.split_at(n);
+        let t: Vec<&[f32]> = rest.chunks_exact(n).collect();
+        depth::nearness_boosted(g, &t, d.w, d.h, d.kind, img_w, img_h)
+    } else {
+        depth::nearness(&d.data, d.w, d.h, d.kind, img_w, img_h)
+    }
+}
+
+/// Decode → render → encode (JPEG or PNG per `opts.format`; the name is
+/// historical). The main entry point for capture.
 pub fn develop_jpeg(
     input: &[u8],
     recipe: &Recipe,
@@ -129,14 +166,14 @@ pub fn develop_jpeg(
     let near = opts
         .depth
         .as_ref()
-        .and_then(|d| depth::nearness(&d.data, d.w, d.h, d.kind, img.w, img.h));
+        .and_then(|d| near_from_raw(d, img.w, img.h));
     // Likewise a bad segmentation map means colour-only vegetation.
     let veg = opts
         .veg
         .as_ref()
         .and_then(|s| seg::vegetation(&s.data, s.classes, s.w, s.h));
     let out = pipeline::render_with_aux(&img, &res, near.as_ref(), veg.as_ref(), hooks)?;
-    let bytes = io::encode_jpeg(&out, opts.jpeg_quality)?;
+    let bytes = io::encode(&out, opts.format, opts.jpeg_quality)?;
     (hooks.progress)(1.0);
     Ok(bytes)
 }

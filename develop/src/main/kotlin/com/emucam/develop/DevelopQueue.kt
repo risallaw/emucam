@@ -40,6 +40,8 @@ class DevelopQueue(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val jobs = Channel<String>(Channel.UNLIMITED)
+    /** Shots deleted while queued or developing; their job is dropped. */
+    private val discarded: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
     private val _active = MutableStateFlow<DevelopProgress?>(null)
     /** Currently developing shot and its progress (null when idle). */
@@ -63,7 +65,30 @@ class DevelopQueue(
         _shots.value = store.all()
     }
 
+    /** Develop a failed shot again with its own recipe and format. */
+    fun retry(id: String) {
+        val shot = store.read(id) ?: return
+        store.write(shot.copy(state = ShotState.PENDING, error = null))
+        enqueue(id)
+    }
+
+    /**
+     * Delete a shot: stops its develop if it is running, removes the
+     * published photo (best effort) and the shot's files. Returns false if
+     * the published photo could not be removed from the gallery.
+     */
+    fun delete(id: String): Boolean {
+        val shot = store.read(id)
+        if (shot?.state == ShotState.PENDING || shot?.state == ShotState.DEVELOPING) discarded += id
+        val uri = shot?.uri
+        val removed = uri == null || MediaStoreSaver.delete(context, android.net.Uri.parse(uri))
+        store.delete(id)
+        refresh()
+        return removed
+    }
+
     private suspend fun develop(id: String) {
+        if (discarded.remove(id)) return
         val shot = store.read(id) ?: return
         store.write(shot.copy(state = ShotState.DEVELOPING))
         refresh()
@@ -73,17 +98,23 @@ class DevelopQueue(
             val bytes = withContext(Dispatchers.IO) { store.original(id).readBytes() }
             val raw = depthFor(id, bytes, recipe)
             val veg = vegFor(id, bytes, recipe)
-            val out = runNative(bytes, recipe, id, raw, veg)
-            val developed = store.developed(id)
+            val out = runNative(bytes, recipe, id, raw, veg, shot.format)
+            val developed = store.developed(shot)
             withContext(Dispatchers.IO) {
                 developed.writeBytes(out)
                 ExifWriter.copy(store.original(id), developed, describe(recipe), recipe.toJson(), "emucam ${EmuNative.version()}")
             }
-            val uri = withContext(Dispatchers.IO) { MediaStoreSaver.save(context, developed, shot.createdAt) }
+            val uri = withContext(Dispatchers.IO) { MediaStoreSaver.save(context, developed, shot.createdAt, shot.format) }
             store.write(shot.copy(state = ShotState.DONE, uri = uri.toString(), error = null))
         } catch (t: Throwable) {
-            Log.e(TAG, "develop $id failed", t)
-            store.write(shot.copy(state = ShotState.FAILED, error = t.message))
+            if (discarded.remove(id)) {
+                // deleted mid-develop: nothing left to mark as failed
+                runCatching { store.delete(id) }
+            } else {
+                Log.e(TAG, "develop $id failed", t)
+                // a failed write must not kill the queue's consumer loop
+                runCatching { store.write(shot.copy(state = ShotState.FAILED, error = t.message ?: t.javaClass.simpleName)) }
+            }
         } finally {
             _active.value = null
             refresh()
@@ -98,11 +129,15 @@ class DevelopQueue(
     private suspend fun depthFor(id: String, jpeg: ByteArray, recipe: Recipe): FloatArray? {
         val est = depth ?: return null
         val m = est.model
+        // boosted: whole frame + zoomed detail tiles (thin objects keep their
+        // depth); a cached single map from an older build has the wrong size
+        // and is recomputed
+        val passes = 1 + EmuNative.depthTiles()
         return cachedInference(
-            "depth", id, store.depth(id), m.outputSize,
+            "depth", id, store.depth(id), m.outputSize * passes,
             wants = { EmuNative.wantsDepth(recipe.toJson()) },
-            input = { EmuNative.depthInput(jpeg, m.width, m.height, m.nchw) },
-            run = est::run,
+            input = { EmuNative.depthInputBoosted(jpeg, m.width, m.height, m.nchw) },
+            run = { all -> runChunks(all, passes, est::run) },
         )
     }
 
@@ -123,24 +158,21 @@ class DevelopQueue(
     }
 
     private suspend fun runNative(
-        bytes: ByteArray, recipe: Recipe, id: String, depthRaw: FloatArray?, vegRaw: FloatArray?,
+        bytes: ByteArray, recipe: Recipe, id: String, depthRaw: FloatArray?, vegRaw: FloatArray?, format: OutputFormat,
     ): ByteArray {
-        val m = depth?.model
-        val sm = seg?.model
-        val h = if (vegRaw != null && sm != null) {
-            val dm = m.takeIf { depthRaw != null }
-            EmuNative.developStartAux(
-                bytes, recipe.toJson(), 0, JPEG_QUALITY,
-                depthRaw.takeIf { dm != null }, dm?.width ?: 0, dm?.height ?: 0, dm?.kind ?: 0,
-                vegRaw, sm.classes, sm.outW, sm.outH,
-            )
-        } else if (depthRaw != null && m != null) {
-            EmuNative.developStartDepth(bytes, recipe.toJson(), 0, JPEG_QUALITY, depthRaw, m.width, m.height, m.kind)
-        } else {
-            EmuNative.developStart(bytes, recipe.toJson(), 0, JPEG_QUALITY)
-        }
+        val dm = depth?.model?.takeIf { depthRaw != null }
+        val sm = seg?.model?.takeIf { vegRaw != null }
+        val h = EmuNative.developStartOut(
+            bytes, recipe.toJson(), 0, format.quality, format.nativeCode,
+            depthRaw.takeIf { dm != null }, dm?.width ?: 0, dm?.height ?: 0, dm?.kind ?: 0,
+            vegRaw.takeIf { sm != null }, sm?.classes ?: 0, sm?.outW ?: 0, sm?.outH ?: 0,
+        )
         try {
             while (scope.isActive) {
+                if (id in discarded) {
+                    EmuNative.developCancel(h)
+                    error("deleted")
+                }
                 when (EmuNative.developStatus(h)) {
                     EmuNative.STATUS_DONE -> return EmuNative.developResult(h)
                     EmuNative.STATUS_FAILED -> error(EmuNative.developError(h))
@@ -158,8 +190,6 @@ class DevelopQueue(
 
     companion object {
         private const val TAG = "DevelopQueue"
-        /** 95, not 92: film grain is fine texture that lower qualities smear. */
-        private const val JPEG_QUALITY = 95
 
         /**
          * A network's raw output for one shot: the cached file if it has
@@ -167,6 +197,30 @@ class DevelopQueue(
          * network and cache the result. Null when not [wants]ed or on any
          * failure (never throws, except for coroutine cancellation).
          */
+        /**
+         * Run a network on each of [passes] equal chunks of [all] (inputs
+         * concatenated) and concatenate the outputs; null if any pass fails.
+         */
+        internal suspend fun runChunks(
+            all: FloatArray,
+            passes: Int,
+            run: suspend (FloatArray) -> FloatArray?,
+        ): FloatArray? {
+            require(passes > 0 && all.size % passes == 0) { "bad chunking ${all.size} / $passes" }
+            val n = all.size / passes
+            val outs = ArrayList<FloatArray>(passes)
+            for (k in 0 until passes) {
+                outs += run(all.copyOfRange(k * n, (k + 1) * n)) ?: return null
+            }
+            val out = FloatArray(outs.sumOf { it.size })
+            var at = 0
+            for (o in outs) {
+                o.copyInto(out, at)
+                at += o.size
+            }
+            return out
+        }
+
         internal suspend fun cachedInference(
             label: String,
             id: String,

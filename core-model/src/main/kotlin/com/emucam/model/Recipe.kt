@@ -87,3 +87,19 @@ fun Recipe.redevelopWith(look: Recipe): Recipe = look.copy(
         focusSize = params.focusSize,
     ),
 )
+
+/**
+ * This recipe with other stock: a camera [body] (which brings its own film,
+ * lens and effects), or else [film] and [lens] in place of the current ones.
+ * [currentLens] is the lens this recipe resolves to now; switching to a
+ * different lens resets the lens controls, which belong to the old lens.
+ */
+fun Recipe.withStock(body: String?, film: String?, lens: String?, currentLens: String?): Recipe =
+    if (body != null) {
+        copy(body = body, film = null, lens = null, disabledEffects = emptyList())
+    } else {
+        copy(
+            body = null, film = film, lens = lens,
+            params = if (lens != currentLens) params.copy(values = emptyMap(), blur = 1f) else params,
+        )
+    }

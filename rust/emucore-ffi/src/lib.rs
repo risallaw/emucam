@@ -6,6 +6,7 @@
 //! Every entry point is wrapped in `catch_unwind` → Java RuntimeException.
 
 use emucore::depth::{nearness, DepthKind, ModelLayout};
+use emucore::io::OutputFormat;
 use emucore::{
     depth_input_jpeg, develop_jpeg, preview, resolve, Catalog, DevelopOptions, Hooks, RawDepth,
     RawSeg, Recipe,
@@ -196,6 +197,7 @@ fn job<'a>(h: jlong) -> Option<&'a Job> {
 fn develop_options(
     max_dim: jint,
     quality: jint,
+    format: OutputFormat,
     depth: Option<RawDepth>,
     veg: Option<RawSeg>,
 ) -> DevelopOptions {
@@ -206,6 +208,7 @@ fn develop_options(
             None
         },
         jpeg_quality: quality.clamp(50, 100) as u8,
+        format,
         depth,
         veg,
     }
@@ -271,7 +274,11 @@ pub extern "system" fn Java_com_emucam_nativebridge_EmuNative_developStart<'l>(
     guard(&mut env, |env| {
         let bytes = env.convert_byte_array(&input).map_err(|e| e.to_string())?;
         let r = recipe(env, &json)?;
-        spawn_job(bytes, r, develop_options(max_dim, quality, None, None))
+        spawn_job(
+            bytes,
+            r,
+            develop_options(max_dim, quality, OutputFormat::Jpeg, None, None),
+        )
     })
 }
 
@@ -302,7 +309,11 @@ pub extern "system" fn Java_com_emucam_nativebridge_EmuNative_developStartDepth<
         let bytes = env.convert_byte_array(&input).map_err(|e| e.to_string())?;
         let r = recipe(env, &json)?;
         let raw = raw_depth(env, &depth, dw, dh, kind)?;
-        spawn_job(bytes, r, develop_options(max_dim, quality, raw, None))
+        spawn_job(
+            bytes,
+            r,
+            develop_options(max_dim, quality, OutputFormat::Jpeg, raw, None),
+        )
     })
 }
 
@@ -348,18 +359,61 @@ pub extern "system" fn Java_com_emucam_nativebridge_EmuNative_developStartAux<'l
         let bytes = env.convert_byte_array(&input).map_err(|e| e.to_string())?;
         let r = recipe(env, &json)?;
         let raw = raw_depth(env, &depth, dw, dh, kind)?;
-        let seg = if veg.is_null() {
-            None
-        } else {
-            Some(RawSeg {
-                classes: veg_classes.max(0) as usize,
-                w: veg_w.max(0) as usize,
-                h: veg_h.max(0) as usize,
-                data: float_array(env, &veg)?,
-            })
-        };
-        spawn_job(bytes, r, develop_options(max_dim, quality, raw, seg))
+        let seg = raw_seg(env, &veg, veg_classes, veg_w, veg_h)?;
+        spawn_job(
+            bytes,
+            r,
+            develop_options(max_dim, quality, OutputFormat::Jpeg, raw, seg),
+        )
     })
+}
+
+/// Like `developStartAux`, plus the output container (`format`: 0 = JPEG at
+/// `quality`, 1 = 8-bit PNG, `quality` ignored). Either map may be null.
+#[no_mangle]
+pub extern "system" fn Java_com_emucam_nativebridge_EmuNative_developStartOut<'l>(
+    mut env: JNIEnv<'l>,
+    _c: JClass<'l>,
+    input: JByteArray<'l>,
+    json: JString<'l>,
+    max_dim: jint,
+    quality: jint,
+    format: jint,
+    depth: JFloatArray<'l>,
+    dw: jint,
+    dh: jint,
+    kind: jint,
+    veg: JFloatArray<'l>,
+    veg_classes: jint,
+    veg_w: jint,
+    veg_h: jint,
+) -> jlong {
+    guard(&mut env, |env| {
+        let fmt = OutputFormat::from_code(format).map_err(|e| e.to_string())?;
+        let bytes = env.convert_byte_array(&input).map_err(|e| e.to_string())?;
+        let r = recipe(env, &json)?;
+        let raw = raw_depth(env, &depth, dw, dh, kind)?;
+        let seg = raw_seg(env, &veg, veg_classes, veg_w, veg_h)?;
+        spawn_job(bytes, r, develop_options(max_dim, quality, fmt, raw, seg))
+    })
+}
+
+fn raw_seg(
+    env: &mut JNIEnv,
+    veg: &JFloatArray,
+    classes: jint,
+    w: jint,
+    h: jint,
+) -> Result<Option<RawSeg>, String> {
+    if veg.is_null() {
+        return Ok(None);
+    }
+    Ok(Some(RawSeg {
+        classes: classes.max(0) as usize,
+        w: w.max(0) as usize,
+        h: h.max(0) as usize,
+        data: float_array(env, veg)?,
+    }))
 }
 
 fn float_array(env: &mut JNIEnv, a: &JFloatArray) -> Result<Vec<f32>, String> {
@@ -431,6 +485,43 @@ pub extern "system" fn Java_com_emucam_nativebridge_EmuNative_depthInput<'l>(
         let t = depth_input_jpeg(&bytes, layout).map_err(|e| e.to_string())?;
         new_float_array(env, &t)
     })
+}
+
+/// Boosted-depth input tensors for a JPEG: the whole frame followed by the
+/// detail tiles (`depthTiles()` of them), each `w`×`h` like `depthInput`,
+/// concatenated. Pass the network outputs, concatenated in the same order, as
+/// the `depth` array of `developStart*` for sharper depth on thin objects.
+#[no_mangle]
+pub extern "system" fn Java_com_emucam_nativebridge_EmuNative_depthInputBoosted<'l>(
+    mut env: JNIEnv<'l>,
+    _c: JClass<'l>,
+    input: JByteArray<'l>,
+    w: jint,
+    h: jint,
+    nchw: jboolean,
+) -> jfloatArray {
+    guard(&mut env, |env| {
+        if w <= 0 || h <= 0 {
+            return Err(format!("bad layout {w}x{h}"));
+        }
+        let bytes = env.convert_byte_array(&input).map_err(|e| e.to_string())?;
+        let layout = ModelLayout {
+            w: w as usize,
+            h: h as usize,
+            nchw: nchw != 0,
+        };
+        let t = emucore::depth_input_boosted_jpeg(&bytes, layout).map_err(|e| e.to_string())?;
+        new_float_array(env, &t)
+    })
+}
+
+/// Number of detail tiles in boosted depth (tensors = 1 + this).
+#[no_mangle]
+pub extern "system" fn Java_com_emucam_nativebridge_EmuNative_depthTiles<'l>(
+    _env: JNIEnv<'l>,
+    _c: JClass<'l>,
+) -> jint {
+    (emucore::depth::TILE_GRID * emucore::depth::TILE_GRID) as jint
 }
 
 /// Normalise a portrait-oriented raw depth output to nearness (0 far … 1

@@ -11,6 +11,7 @@ import androidx.core.content.edit
 import com.emucam.camera.CameraController
 import com.emucam.camera.CameraState
 import com.emucam.develop.DevelopProgress
+import com.emucam.develop.OutputFormat
 import com.emucam.develop.Shot
 import com.emucam.gl.LiveParams
 import com.emucam.model.forCaptureRotation
@@ -50,6 +51,8 @@ data class UiState(
     val developing: DevelopProgress? = null,
     val shots: List<Shot> = emptyList(),
     val showGallery: Boolean = false,
+    /** Container for newly developed photos (persisted). */
+    val outputFormat: OutputFormat = OutputFormat.DEFAULT,
     val flash: Boolean = false,
     val message: String? = null,
 )
@@ -80,7 +83,9 @@ class ViewfinderViewModel(private val app: EmucamApp) : ViewModel() {
     private val liveSeg = LiveSeg(app, camera.processor, viewModelScope) { camera.deviceRotation }
 
     private val recipe = MutableStateFlow(loadRecipe())
-    private val ui = MutableStateFlow(UiState(engine.catalog, recipe.value))
+    private val ui = MutableStateFlow(
+        UiState(engine.catalog, recipe.value, outputFormat = OutputFormat.fromName(prefs.getString(KEY_FORMAT, null))),
+    )
 
     val state: StateFlow<UiState> = combine(ui, recipe, camera.state, app.queue.active, app.queue.shots) { u, r, c, d, s ->
         u.copy(recipe = r, camera = c, developing = d, shots = s)
@@ -125,6 +130,11 @@ class ViewfinderViewModel(private val app: EmucamApp) : ViewModel() {
     fun setPickerTab(t: PickerTab) = ui.update { it.copy(pickerTab = t) }
     fun showGallery(show: Boolean) = ui.update { it.copy(showGallery = show) }
     fun dismissMessage() = ui.update { it.copy(message = null) }
+
+    fun setOutputFormat(f: OutputFormat) {
+        ui.update { it.copy(outputFormat = f) }
+        prefs.edit { putString(KEY_FORMAT, f.name) }
+    }
 
     // ---------------------------------------------------------- adjustments
 
@@ -186,7 +196,7 @@ class ViewfinderViewModel(private val app: EmucamApp) : ViewModel() {
 
     fun shutter() {
         viewModelScope.launch {
-            val (shot, file) = app.store.newShot()
+            val (shot, file) = app.store.newShot(ui.value.outputFormat)
             val base = recipe.value
             val r = base.copy(
                 seed = Random.nextLong(0, 1L shl 32),
@@ -207,12 +217,17 @@ class ViewfinderViewModel(private val app: EmucamApp) : ViewModel() {
         }
     }
 
-    /** Re-develop an existing shot's original with the current film/lens. */
-    fun redevelop(shotId: String) {
+    /**
+     * Re-develop an existing shot's original as a new frame with [look]
+     * (null = the viewfinder's current look) and the current output format.
+     * The shot's own focus geometry is kept. [onCreated] gets the new id on
+     * the main thread.
+     */
+    fun redevelop(shotId: String, look: Recipe? = null, onCreated: (String) -> Unit = {}) {
         viewModelScope.launch(Dispatchers.IO) {
             val src: File = app.store.original(shotId)
             if (!src.exists()) return@launch
-            val (shot, file) = app.store.newShot()
+            val (shot, file) = app.store.newShot(ui.value.outputFormat)
             try {
                 src.copyTo(file, overwrite = true)
             } catch (e: IOException) {
@@ -226,18 +241,28 @@ class ViewfinderViewModel(private val app: EmucamApp) : ViewModel() {
             for (cache in listOf(app.store::depth, app.store::veg)) {
                 runCatching { cache(shotId).takeIf { it.exists() }?.copyTo(cache(shot.id), overwrite = true) }
             }
-            val look = recipe.value.copy(seed = Random.nextLong(0, 1L shl 32))
+            val base = look ?: recipe.value
+            val withSeed = base.copy(seed = Random.nextLong(0, 1L shl 32))
             // keep the shot's own focus point; the viewfinder's belongs to another frame
-            val r = runCatching { app.store.recipe(shotId) }.getOrNull()?.redevelopWith(look) ?: look
+            val r = runCatching { app.store.recipe(shotId) }.getOrNull()?.redevelopWith(withSeed) ?: withSeed
             app.store.saveRecipe(shot.id, r)
             app.queue.enqueue(shot.id)
-            ui.update { it.copy(message = "Re-developing with ${engine.describe(r)}") }
+            ui.update { it.copy(message = "Developing a new frame with ${engine.describe(r)}") }
+            launch(Dispatchers.Main) { onCreated(shot.id) }
         }
     }
 
+    /** Develop a failed shot again with its own recipe. */
+    fun retry(id: String) {
+        viewModelScope.launch(Dispatchers.IO) { app.queue.retry(id) }
+    }
+
     fun deleteShot(id: String) {
-        app.store.delete(id)
-        app.queue.refresh()
+        viewModelScope.launch(Dispatchers.IO) {
+            if (!app.queue.delete(id)) {
+                ui.update { it.copy(message = "Removed from the contact sheet; the photo stays in your gallery.") }
+            }
+        }
     }
 
     override fun onCleared() {
@@ -249,6 +274,7 @@ class ViewfinderViewModel(private val app: EmucamApp) : ViewModel() {
     companion object {
         private const val TAG = "Viewfinder"
         private const val KEY_RECIPE = "recipe"
+        private const val KEY_FORMAT = "output_format"
 
         fun factory(app: EmucamApp) = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")

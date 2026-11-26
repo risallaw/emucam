@@ -6,6 +6,7 @@ import com.emucam.depth.DepthEstimator
 import com.emucam.depth.DepthModel
 import com.emucam.depth.PreviewTensor
 import com.emucam.depth.liveDepthLoop
+import com.emucam.depth.thermalPeriod
 import com.emucam.gl.DepthFrame
 import com.emucam.gl.EmuSurfaceProcessor
 import com.emucam.gl.LIVE_DEPTH_SIZE
@@ -20,7 +21,7 @@ import kotlinx.coroutines.launch
 /**
  * Live depth for the viewfinder: asks the GL preview for a small frame, runs
  * the fast preview network, and hands the nearness map back to the renderer
- * (~10 maps/s). Runs only while [setEnabled] is true (the current lens uses
+ * (~5 maps/s, fewer as the phone heats up). Runs only while [setEnabled] is true (the current lens uses
  * depth), and turns itself off for good if the network can't run here.
  */
 class LiveDepth(
@@ -31,6 +32,7 @@ class LiveDepth(
     private val rotation: () -> Int,
 ) {
     private val estimator = DepthEstimator(context, DepthModel.PREVIEW, idleMillis = 10_000)
+    private val power = context.getSystemService(android.os.PowerManager::class.java)
     private val frames = Channel<ByteArray>(Channel.CONFLATED)
     private val tap = processor.frames.add { frames.trySend(it) }
 
@@ -64,7 +66,7 @@ class LiveDepth(
         synchronized(lock) { if (me != null && me === job && me.isActive) f() }
     }
 
-    private suspend fun loop() = liveDepthLoop(frames, tap::request, PERIOD_MS) { rgba ->
+    private suspend fun loop() = liveDepthLoop(frames, tap::request, { thermalPeriod(PERIOD_MS, power.currentThermalStatus) }) { rgba ->
         val n = LIVE_DEPTH_SIZE
         val m = DepthModel.PREVIEW
         val rot = rotation()
@@ -100,6 +102,8 @@ class LiveDepth(
 
     private companion object {
         const val TAG = "LiveDepth"
-        const val PERIOD_MS = 100L
+        // 5 maps/s: enough to follow a moving subject; 10/s kept the GPU busy
+        // and, with the camera, heated the phone over a few minutes
+        const val PERIOD_MS = 200L
     }
 }

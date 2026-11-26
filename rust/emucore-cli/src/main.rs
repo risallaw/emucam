@@ -128,13 +128,21 @@ fn recipe_from_args(a: &Args) -> Recipe {
 
 /// `--depth raw.f32 --depth-size WxH [--depth-kind depth|inverse]`: raw
 /// little-endian f32 network output in its portrait layout.
+/// `--depth-tiles t0.f32,t1.f32,…` adds the detail-tile outputs (inputs from
+/// `depth-input --tile N`) for boosted depth.
 fn depth_from_args(a: &Args, img: &ImageF32) -> Option<emucore::image::MaskF32> {
-    let path = a.get("depth")?;
-    let bytes = std::fs::read(path).unwrap_or_else(|e| die(format!("{path}: {e}")));
-    let raw: Vec<f32> = bytes
-        .chunks_exact(4)
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-        .collect();
+    let read_f32 = |path: &str| -> Vec<f32> {
+        let bytes = std::fs::read(path).unwrap_or_else(|e| die(format!("{path}: {e}")));
+        bytes
+            .chunks_exact(4)
+            .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+            .collect()
+    };
+    let raw = read_f32(a.get("depth")?);
+    let tiles: Vec<Vec<f32>> = a
+        .get("depth-tiles")
+        .map(|s| s.split(',').map(read_f32).collect())
+        .unwrap_or_default();
     let size = a
         .get("depth-size")
         .unwrap_or_else(|| die("--depth needs --depth-size WxH"));
@@ -147,7 +155,12 @@ fn depth_from_args(a: &Args, img: &ImageF32) -> Option<emucore::image::MaskF32> 
         "inverse" => emucore::depth::DepthKind::InverseDepth,
         k => die(format!("--depth-kind depth|inverse, got {k}")),
     };
-    let m = emucore::depth::nearness(&raw, w, h, kind, img.w, img.h);
+    let m = if tiles.is_empty() {
+        emucore::depth::nearness(&raw, w, h, kind, img.w, img.h)
+    } else {
+        let t: Vec<&[f32]> = tiles.iter().map(|t| t.as_slice()).collect();
+        emucore::depth::nearness_boosted(&raw, &t, w, h, kind, img.w, img.h)
+    };
     if m.is_none() {
         eprintln!("warning: unusable depth map, falling back to the lens field");
     }
@@ -189,8 +202,11 @@ fn save(img: &ImageF32, out: &str) {
     if out.ends_with(".png") {
         io::to_rgb8(img).save(&path).unwrap_or_else(|e| die(e));
     } else {
-        std::fs::write(&path, io::encode_jpeg(img, 92).unwrap_or_else(|e| die(e)))
-            .unwrap_or_else(|e| die(e));
+        std::fs::write(
+            &path,
+            io::encode_jpeg(img, io::JPEG_MAX_QUALITY).unwrap_or_else(|e| die(e)),
+        )
+        .unwrap_or_else(|e| die(e));
     }
     eprintln!("wrote {out} ({}x{})", img.w, img.h);
 }
@@ -471,10 +487,9 @@ fn main() {
         Some("sheet") => sheet(&a, cat),
         Some("depth-input") => {
             // network input tensor (raw LE f32) exactly as the app builds it
-            let input = a
-                .pos
-                .get(1)
-                .unwrap_or_else(|| die("depth-input <in.jpg> --size WxH [--nhwc 1] -o t.f32"));
+            let input = a.pos.get(1).unwrap_or_else(|| {
+                die("depth-input <in.jpg> --size WxH [--nhwc 1] [--tile N] -o t.f32")
+            });
             let (w, h) = a
                 .get("size")
                 .and_then(|s| s.split_once('x'))
@@ -486,7 +501,19 @@ fn main() {
                 nchw: a.get("nhwc").is_none(),
             };
             layout.validate().unwrap_or_else(|e| die(e));
-            let t = emucore::depth::model_input(&load_input(input, None), layout);
+            let img = load_input(input, None);
+            let t = match a.get("tile") {
+                None => emucore::depth::model_input(&img, layout),
+                Some(n) => {
+                    let rects = emucore::depth::detail_tiles();
+                    let r = n
+                        .parse::<usize>()
+                        .ok()
+                        .and_then(|i| rects.get(i).copied())
+                        .unwrap_or_else(|| die(format!("--tile 0..{}", rects.len())));
+                    emucore::depth::model_input_region(&img, layout, r)
+                }
+            };
             let bytes: Vec<u8> = t.iter().flat_map(|v| v.to_le_bytes()).collect();
             let out = a.get("o").unwrap_or("input.f32");
             std::fs::write(out, bytes).unwrap_or_else(|e| die(e));
