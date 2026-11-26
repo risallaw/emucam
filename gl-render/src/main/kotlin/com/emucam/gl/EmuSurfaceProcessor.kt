@@ -61,7 +61,21 @@ class EmuSurfaceProcessor(
 
     fun setConfig(cfg: PreviewConfig) = config.set(cfg)
     fun setLive(p: LiveParams) = live.set(p)
+
+    private val depth = AtomicReference<DepthFrame?>(null)
+    /** Latest live depth map (null = position-based blur). */
+    fun setDepth(frame: DepthFrame?) = depth.set(frame)
     fun setTaps(n: Int) { renderer?.taps = n }
+
+    private val veg = AtomicReference<VegFrame?>(null)
+    /** Latest live vegetation map (null = colour-only infrared masks). */
+    fun setVeg(frame: VegFrame?) = veg.set(frame)
+
+    /**
+     * Live workers' access to small sRGB frames ([LIVE_DEPTH_SIZE]², GL row
+     * order): each adds a tap and [FrameFanout.Tap.request]s one frame at a time.
+     */
+    val frames = FrameFanout()
 
     override fun onInputSurface(request: SurfaceRequest) {
         if (released || failed) {
@@ -116,11 +130,13 @@ class EmuSurfaceProcessor(
             st.getTransformMatrix(texMatrix)
             val cfg = config.get() ?: return
             val lp = live.get()
+            if (r.depthSink == null) r.depthSink = frames::deliver
+            if (frames.wanted) r.wantDepthFrame = true
             for ((out, eglSurface) in outputs) {
                 e.makeCurrent(eglSurface)
                 out.updateTransformMatrix(outMatrix, texMatrix)
                 val t0 = System.nanoTime()
-                r.render(oesTex, outMatrix, out.size.width, out.size.height, cfg, lp)
+                r.render(oesTex, outMatrix, out.size.width, out.size.height, cfg, lp, depth.get(), veg.get())
                 e.swap(eglSurface, st.timestamp)
                 frameMs = frameMs * 0.9f + (System.nanoTime() - t0) / 1e6f * 0.1f
             }

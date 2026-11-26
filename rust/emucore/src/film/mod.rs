@@ -68,9 +68,14 @@ impl ToneXform {
         let punch = p.punch.clamp(-1.0, 1.0);
         let cmul = 1.0 + 0.22 * punch;
         let mono_sum: f32 = t.mono.iter().sum();
-        let is_mono = mono_sum > 0.0 || matches!(film.kind, FilmKind::BwNegative | FilmKind::BwInfrared);
+        let is_mono =
+            mono_sum > 0.0 || matches!(film.kind, FilmKind::BwNegative | FilmKind::BwInfrared);
         let mono = if mono_sum > 0.0 {
-            Some([t.mono[0] / mono_sum, t.mono[1] / mono_sum, t.mono[2] / mono_sum])
+            Some([
+                t.mono[0] / mono_sum,
+                t.mono[1] / mono_sum,
+                t.mono[2] / mono_sum,
+            ])
         } else if is_mono {
             Some([0.2126, 0.7152, 0.0722])
         } else {
@@ -98,8 +103,8 @@ impl ToneXform {
     #[inline]
     pub fn develop(&self, lin: [f32; 3]) -> [f32; 3] {
         let mut e = mat_mul(&self.input, lin);
-        for c in 0..3 {
-            e[c] = (e[c] * self.gains[c]).max(1e-8);
+        for (v, g) in e.iter_mut().zip(self.gains) {
+            *v = (*v * g).max(1e-8);
         }
         if let Some(m) = self.mono {
             let y = m[0] * e[0] + m[1] * e[1] + m[2] * e[2];
@@ -134,8 +139,8 @@ impl ToneXform {
         let l = luma(o).clamp(0.0, 1.0);
         let sh = (1.0 - l) * (1.0 - l);
         let hl = l * l;
-        for c in 0..3 {
-            o[c] += self.print.shadow_tint[c] * sh + self.print.highlight_tint[c] * hl;
+        for (c, v) in o.iter_mut().enumerate() {
+            *v += self.print.shadow_tint[c] * sh + self.print.highlight_tint[c] * hl;
         }
         if (self.print_sat - 1.0).abs() > 1e-4 {
             o = saturate(o, self.print_sat);
@@ -170,7 +175,11 @@ mod tests {
             for i in 0..200 {
                 let v = unshaper(i as f32 / 199.0);
                 let y = luma(t.develop([v, v, v]));
-                assert!(y >= prev - 1e-4, "{} not monotonic at {i}: {y} < {prev}", f.id);
+                assert!(
+                    y >= prev - 1e-4,
+                    "{} not monotonic at {i}: {y} < {prev}",
+                    f.id
+                );
                 prev = y;
             }
         }
@@ -179,16 +188,34 @@ mod tests {
     #[test]
     fn hue_bands_leave_neutrals_and_hit_target_hue() {
         use crate::color::hue_bands;
-        let mute_red = [HueBand { hue: 0.0, width: 45.0, shift: 0.0, sat: 0.5, lum: 0.0 }];
+        let mute_red = [HueBand {
+            hue: 0.0,
+            width: 45.0,
+            shift: 0.0,
+            sat: 0.5,
+            lum: 0.0,
+        }];
         let g = [0.4, 0.4, 0.4];
         assert_eq!(hue_bands(g, &mute_red), g);
         let red = hue_bands([0.8, 0.2, 0.2], &mute_red);
-        assert!((red[0] - 0.6).abs() < 1e-4 && (red[1] - 0.3).abs() < 1e-4, "{red:?}");
+        assert!(
+            (red[0] - 0.6).abs() < 1e-4 && (red[1] - 0.3).abs() < 1e-4,
+            "{red:?}"
+        );
         let blue = [0.2, 0.2, 0.8];
         let b2 = hue_bands(blue, &mute_red);
         assert!(b2.iter().zip(blue).all(|(x, y)| (x - y).abs() < 1e-6));
         // shift blue toward cyan (hue 240 → 210)
-        let cyan = hue_bands(blue, &[HueBand { hue: 240.0, width: 60.0, shift: -30.0, sat: 1.0, lum: 0.0 }]);
+        let cyan = hue_bands(
+            blue,
+            &[HueBand {
+                hue: 240.0,
+                width: 60.0,
+                shift: -30.0,
+                sat: 1.0,
+                lum: 0.0,
+            }],
+        );
         assert!(cyan[1] > cyan[0] + 0.05, "{cyan:?}");
     }
 

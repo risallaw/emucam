@@ -35,25 +35,20 @@ impl Lut3 {
         let i = p.map(|v| (v.floor() as usize).min(self.size - 2));
         let t = [p[0] - i[0] as f32, p[1] - i[1] as f32, p[2] - i[2] as f32];
         let at = |r: usize, g: usize, b: usize| self.data[(b * self.size + g) * self.size + r];
-        let mut o = [0.0; 3];
-        for k in 0..3 {
-            let c000 = at(i[0], i[1], i[2])[k];
-            let c100 = at(i[0] + 1, i[1], i[2])[k];
-            let c010 = at(i[0], i[1] + 1, i[2])[k];
-            let c110 = at(i[0] + 1, i[1] + 1, i[2])[k];
-            let c001 = at(i[0], i[1], i[2] + 1)[k];
-            let c101 = at(i[0] + 1, i[1], i[2] + 1)[k];
-            let c011 = at(i[0], i[1] + 1, i[2] + 1)[k];
-            let c111 = at(i[0] + 1, i[1] + 1, i[2] + 1)[k];
-            let x00 = c000 + (c100 - c000) * t[0];
-            let x10 = c010 + (c110 - c010) * t[0];
-            let x01 = c001 + (c101 - c001) * t[0];
-            let x11 = c011 + (c111 - c011) * t[0];
-            let y0 = x00 + (x10 - x00) * t[1];
-            let y1 = x01 + (x11 - x01) * t[1];
-            o[k] = y0 + (y1 - y0) * t[2];
-        }
-        o
+        // Fetch the 8 cell corners once, then interpolate all channels.
+        let lerp = |a: [f32; 3], b: [f32; 3], t: f32| {
+            [
+                a[0] + (b[0] - a[0]) * t,
+                a[1] + (b[1] - a[1]) * t,
+                a[2] + (b[2] - a[2]) * t,
+            ]
+        };
+        let (r, g, b) = (i[0], i[1], i[2]);
+        let x00 = lerp(at(r, g, b), at(r + 1, g, b), t[0]);
+        let x10 = lerp(at(r, g + 1, b), at(r + 1, g + 1, b), t[0]);
+        let x01 = lerp(at(r, g, b + 1), at(r + 1, g, b + 1), t[0]);
+        let x11 = lerp(at(r, g + 1, b + 1), at(r + 1, g + 1, b + 1), t[0]);
+        lerp(lerp(x00, x10, t[1]), lerp(x01, x11, t[1]), t[2])
     }
 
     /// RGBA16F bytes (little endian) for `glTexImage3D(GL_RGBA16F, GL_HALF_FLOAT)`.
@@ -93,7 +88,9 @@ pub fn bake(res: &Resolved, size: usize) -> FilmLuts {
             }
         }
         None => FilmLuts {
-            develop: Lut3::bake(size, |s| s.map(|v| crate::color::linear_to_srgb(unshaper(v)).clamp(0.0, 1.0))),
+            develop: Lut3::bake(size, |s| {
+                s.map(|v| crate::color::linear_to_srgb(unshaper(v)).clamp(0.0, 1.0))
+            }),
             print: Lut3::bake(size, |y| y),
         },
     }
@@ -130,7 +127,10 @@ mod tests {
     fn preview_lut_matches_analytic_within_tolerance() {
         let cat = Catalog::builtin();
         for id in cat.films.keys() {
-            let r = Recipe { film: Some(id.clone()), ..Default::default() };
+            let r = Recipe {
+                film: Some(id.clone()),
+                ..Default::default()
+            };
             let res = resolve(&r, cat).unwrap();
             let luts = bake(&res, PREVIEW_LUT_SIZE);
             let e = develop_error(&res, &luts);

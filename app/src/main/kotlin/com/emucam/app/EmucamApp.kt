@@ -1,6 +1,8 @@
 package com.emucam.app
 
 import android.app.Application
+import com.emucam.depth.DepthEstimator
+import com.emucam.depth.DepthModel
 import com.emucam.develop.DevelopQueue
 import com.emucam.develop.ShotStore
 
@@ -17,6 +19,10 @@ class EmucamApp : Application() {
         super.onCreate()
         engine = LookEngine()
         store = ShotStore(this)
-        queue = DevelopQueue(this, store) { engine.describe(it) }
+        queue = DevelopQueue(
+            this, store, { engine.describe(it) },
+            DepthEstimator(this, DepthModel.CAPTURE),
+            DepthEstimator(this, DepthModel.SEGMENT),
+        )
     }
 }

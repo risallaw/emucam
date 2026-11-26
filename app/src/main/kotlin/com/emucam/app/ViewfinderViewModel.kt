@@ -7,12 +7,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.camera.view.PreviewView
+import androidx.core.content.edit
 import com.emucam.camera.CameraController
 import com.emucam.camera.CameraState
 import com.emucam.develop.DevelopProgress
 import com.emucam.develop.Shot
 import com.emucam.gl.LiveParams
 import com.emucam.model.forCaptureRotation
+import com.emucam.model.redevelopWith
 import com.emucam.model.Catalog
 import com.emucam.model.Recipe
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +35,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.io.File
+import java.io.IOException
 import kotlin.random.Random
 
 enum class Panel { NONE, FILM, LENS, ADJUST, EFFECTS }
@@ -67,10 +70,14 @@ val USER_EFFECTS = listOf(
     "vignette" to "Vignette",
 )
 
+@OptIn(FlowPreview::class) // debounce
 class ViewfinderViewModel(private val app: EmucamApp) : ViewModel() {
     private val engine = app.engine
     val camera = CameraController(app)
     private val prefs = app.getSharedPreferences("emucam", Context.MODE_PRIVATE)
+
+    private val liveDepth = LiveDepth(app, camera.processor, viewModelScope) { camera.deviceRotation }
+    private val liveSeg = LiveSeg(app, camera.processor, viewModelScope) { camera.deviceRotation }
 
     private val recipe = MutableStateFlow(loadRecipe())
     private val ui = MutableStateFlow(UiState(engine.catalog, recipe.value))
@@ -81,15 +88,22 @@ class ViewfinderViewModel(private val app: EmucamApp) : ViewModel() {
 
     init {
         // Recipe → GPU preview config (Rust bakes LUTs/uniforms), debounced.
-        @OptIn(FlowPreview::class)
         viewModelScope.launch {
             recipe.debounce(40).distinctUntilChanged()
                 .map { runCatching { engine.previewConfig(it) }.onFailure { e -> Log.e(TAG, "preview config", e) }.getOrNull() }
                 .flowOn(Dispatchers.Default)
-                .collect { cfg -> if (cfg != null) camera.processor.setConfig(cfg) }
+                .collect { cfg ->
+                    if (cfg != null) {
+                        camera.processor.setConfig(cfg)
+                        // Rust decides whether this lens/recipe uses depth
+                        liveDepth.setEnabled((cfg.uniforms["uDepthParams"]?.getOrNull(2) ?: 0f) > 0.5f)
+                        // the IR define is set exactly when pipeline::wants_veg (infrared film)
+                        liveSeg.setEnabled("IR" in cfg.defines)
+                    }
+                }
         }
         viewModelScope.launch {
-            recipe.debounce(500).collect { prefs.edit().putString(KEY_RECIPE, it.toJson()).apply() }
+            recipe.debounce(500).collect { prefs.edit { putString(KEY_RECIPE, it.toJson()) } }
         }
     }
 
@@ -199,8 +213,22 @@ class ViewfinderViewModel(private val app: EmucamApp) : ViewModel() {
             val src: File = app.store.original(shotId)
             if (!src.exists()) return@launch
             val (shot, file) = app.store.newShot()
-            src.copyTo(file, overwrite = true)
-            val r = recipe.value.copy(seed = Random.nextLong(0, 1L shl 32))
+            try {
+                src.copyTo(file, overwrite = true)
+            } catch (e: IOException) {
+                // e.g. disk full: an uncaught exception here would crash the app (viewModelScope)
+                app.store.delete(shot.id)
+                ui.update { it.copy(message = "Re-develop failed: ${e.message}") }
+                return@launch
+            }
+            // same photo → same depth / vegetation maps; saves re-running the networks.
+            // The caches are optional: a failed copy just means they're recomputed.
+            for (cache in listOf(app.store::depth, app.store::veg)) {
+                runCatching { cache(shotId).takeIf { it.exists() }?.copyTo(cache(shot.id), overwrite = true) }
+            }
+            val look = recipe.value.copy(seed = Random.nextLong(0, 1L shl 32))
+            // keep the shot's own focus point; the viewfinder's belongs to another frame
+            val r = runCatching { app.store.recipe(shotId) }.getOrNull()?.redevelopWith(look) ?: look
             app.store.saveRecipe(shot.id, r)
             app.queue.enqueue(shot.id)
             ui.update { it.copy(message = "Re-developing with ${engine.describe(r)}") }
@@ -213,6 +241,8 @@ class ViewfinderViewModel(private val app: EmucamApp) : ViewModel() {
     }
 
     override fun onCleared() {
+        liveSeg.close()
+        liveDepth.close()
         camera.release()
     }
 

@@ -19,4 +19,5 @@ dependencies {
     implementation(libs.camera.core)
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.serialization.json)
+    testImplementation(libs.junit)
 }

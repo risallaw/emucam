@@ -46,7 +46,8 @@ impl Catalog {
         static C: OnceLock<Catalog> = OnceLock::new();
         C.get_or_init(|| {
             let mut c = Catalog::default();
-            c.load_dir_embedded(&BUILTIN).expect("built-in presets must parse");
+            c.load_dir_embedded(&BUILTIN)
+                .expect("built-in presets must parse");
             c
         })
     }
@@ -76,7 +77,9 @@ impl Catalog {
     pub fn load_pack(&mut self, root: &Path) -> Result<(), Error> {
         for kind in ["films", "lenses", "bodies"] {
             let d = root.join(kind);
-            let Ok(rd) = std::fs::read_dir(&d) else { continue };
+            let Ok(rd) = std::fs::read_dir(&d) else {
+                continue;
+            };
             for e in rd.flatten() {
                 let p = e.path();
                 if p.extension().and_then(|e| e.to_str()) == Some("toml") {

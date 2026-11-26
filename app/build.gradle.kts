@@ -39,6 +39,7 @@ dependencies {
     implementation(project(":camera"))
     implementation(project(":gl-render"))
     implementation(project(":develop"))
+    implementation(project(":depth"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)

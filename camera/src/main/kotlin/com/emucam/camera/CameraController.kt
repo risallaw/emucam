@@ -6,6 +6,7 @@ import android.view.OrientationEventListener
 import android.view.Surface
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ExperimentalZeroShutterLag
 import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -16,6 +17,8 @@ import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
 import com.emucam.gl.EmuPreviewEffect
 import com.emucam.gl.EmuSurfaceProcessor
@@ -69,10 +72,21 @@ class CameraController(private val context: Context) {
         }
     }
 
+    /** The accelerometer runs only while the UI is started, not for the ViewModel's whole life. */
+    private val orientationGate = LifecycleEventObserver { _, event ->
+        when (event) {
+            Lifecycle.Event.ON_START -> if (orientationListener.canDetectOrientation()) orientationListener.enable()
+            Lifecycle.Event.ON_STOP -> orientationListener.disable()
+            else -> Unit
+        }
+    }
+
     fun bind(lifecycleOwner: LifecycleOwner, previewView: PreviewView) {
+        owner?.lifecycle?.removeObserver(orientationGate)
         owner = lifecycleOwner
         view = previewView
-        if (orientationListener.canDetectOrientation()) orientationListener.enable()
+        // replays ON_START if already started
+        lifecycleOwner.lifecycle.addObserver(orientationGate)
         val future = ProcessCameraProvider.getInstance(context)
         future.addListener({
             provider = future.get()
@@ -86,6 +100,7 @@ class CameraController(private val context: Context) {
         rebind()
     }
 
+    @androidx.annotation.OptIn(markerClass = [ExperimentalZeroShutterLag::class])
     private fun rebind() {
         val p = provider ?: return
         val o = owner ?: return
@@ -157,6 +172,7 @@ class CameraController(private val context: Context) {
     }
 
     fun release() {
+        owner?.lifecycle?.removeObserver(orientationGate)
         orientationListener.disable()
         provider?.unbindAll()
         processor.release()

@@ -9,6 +9,8 @@ uniform sampler2D uBlur;      // wide low-res blur of the linear image
 uniform highp sampler3D uLutDevelop;
 uniform highp sampler3D uLutPrint;
 uniform float uLutSize;
+uniform sampler2D uVeg;       // live vegetation probability (r), GL uv space (unit 6)
+uniform float uVegOn;         // 1 for IR films with a live segmentation map
 in vec2 vUv;
 out vec4 fragColor;
 
@@ -25,7 +27,20 @@ vec3 shaper(vec3 lin) { return clamp((log2(max(lin, 1e-8) / 0.18) - LOG_MIN) / (
 float vegIndex(vec3 c) {
     float s = c.r + c.g + c.b + 1e-6;
     vec3 k = c / s;
-    return smoothstep(uIrVeg.x, uIrVeg.y, 2.0 * k.g - k.r - k.b) * smoothstep(0.01, 0.06, luma(c));
+    // parity mirror of rust infrared::veg_index (keep identical): the green-over-red
+    // dominance term keeps dark olive paint/fabric from reading as foliage
+    return smoothstep(uIrVeg.x, uIrVeg.y, 2.0 * k.g - k.r - k.b) * smoothstep(0.01, 0.06, luma(c))
+        * smoothstep(0.03, 0.10, k.g - k.r);
+}
+float band(float x, float a, float b, float c, float d) {
+    return smoothstep(a, b, x) * (1.0 - smoothstep(c, d, x));
+}
+// parity mirror of rust infrared::skin_index (keep identical)
+float skinIndex(vec3 c) {
+    float s = c.r + c.g + c.b + 1e-6;
+    vec3 k = c / s;
+    return band(k.r, 0.35, 0.41, 0.66, 0.72) * band(k.g, 0.16, 0.20, 0.33, 0.36)
+        * smoothstep(-0.14, -0.08, k.g - k.b) * smoothstep(0.01, 0.04, luma(c));
 }
 float skyIndex(vec3 c, float v) {
     float s = c.r + c.g + c.b + 1e-6;
@@ -58,7 +73,10 @@ void main() {
     }
 #ifdef LENS_BLUR
     float r = coc(p);
-    if (r > 0.5) c = mix(c, compressC(texture(uLens, vUv).rgb), smoothstep(0.5, 1.5, r));
+    vec4 lens = texture(uLens, vUv);
+    if (r > 0.5) c = mix(c, compressC(lens.rgb), smoothstep(0.5, 1.5, r));
+    // sharp pixel: blurred content in front still spreads over it (alpha = coverage)
+    else if (lens.a > 0.0) c = mix(c, compressC(lens.rgb), lens.a);
 #endif
     vec3 wide = texture(uBlur, vUv).rgb;
 #ifdef LENS_GLOW
@@ -85,10 +103,22 @@ void main() {
 #ifdef FILM
 #ifdef IR
     {
-        // sharp mask (Rust blurs only ~0.5% of width) — the wide blur would bleed
-        float veg = vegIndex(scene);
-        float sky = skyIndex(wide, 1.0 - vUv.y);
+        // own-pixel mask gated by the regional (wide) one; mirrors infrared::gate
+        float vy = 1.0 - vUv.y;
+        float veg;
+        if (uVegOn > 0.5) {
+            // parity mirror of rust infrared::masks + gate_by_seg: seg_gate (smoothstep
+            // 0.15..0.5 of p_veg) multiplies BOTH the fine and the regional vegetation
+            // mask before infrared::gate combines them
+            float s = smoothstep(0.15, 0.5, texture(uVeg, vUv).r);
+            veg = vegIndex(scene) * s * smoothstep(0.05, 0.35, vegIndex(wide) * s);
+        } else {
+            veg = vegIndex(scene) * smoothstep(0.05, 0.35, vegIndex(wide));
+        }
+        float sky = skyIndex(scene, vy) * smoothstep(0.05, 0.35, skyIndex(wide, vy));
         float base = max(0.75 * c.r + 0.25 * c.g + 0.4 * (c.r - c.b), 0.0);
+        // skin reflects far more NIR than red (rust infrared::pseudo_ir)
+        base += (max(c.r * uIr.w, base) - base) * skinIndex(c);
         float ir = mix(base, max(c.g * uIr.y, base), veg) * (1.0 - uIr.z * sky);
         int v = int(uIr.x + 0.5);
         if (v == 0) c = vec3(ir, c.r, c.g);
@@ -110,7 +140,7 @@ void main() {
     {
         float sigmaTrue = uGrain.y / 36000.0 * uOutSize.x;
         float s = max(sigmaTrue, 0.5);
-        float amp = uGrain.x * 0.18 * clamp(sigmaTrue / 0.6, 0.15, 1.0) * 1.6;
+        float amp = uGrain.x * 0.10 * clamp(sigmaTrue / 0.6, 0.15, 1.0) * 1.6;
         vec2 gp = p / s;
         float frame = mod(uTime, 64.0);
         vec3 n0 = hash3(gp, frame) - 0.5;

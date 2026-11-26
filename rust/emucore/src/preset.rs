@@ -226,7 +226,11 @@ fn default_grain_um() -> f32 {
 
 impl Default for GrainSpec {
     fn default() -> Self {
-        Self { amount: 0.0, size_um: 15.0, chroma: 0.0 }
+        Self {
+            amount: 0.0,
+            size_um: 15.0,
+            chroma: 0.0,
+        }
     }
 }
 
@@ -251,7 +255,12 @@ fn default_halation_tint() -> [f32; 3] {
 }
 impl Default for HalationSpec {
     fn default() -> Self {
-        Self { strength: 0.0, threshold: default_halation_threshold(), radius: 1.0, tint: default_halation_tint() }
+        Self {
+            strength: 0.0,
+            threshold: default_halation_threshold(),
+            radius: 1.0,
+            tint: default_halation_tint(),
+        }
     }
 }
 
@@ -284,6 +293,13 @@ pub struct IrSpec {
     pub veg_lo: f32,
     #[serde(default = "default_veg_hi")]
     pub veg_hi: f32,
+    /// Skin NIR reflectance relative to its red (melanin is nearly transparent
+    /// in NIR). 0 = treat skin like any warm material.
+    #[serde(default = "default_kskin")]
+    pub k_skin: f32,
+}
+fn default_kskin() -> f32 {
+    1.7
 }
 fn default_kveg() -> f32 {
     4.5
@@ -291,11 +307,13 @@ fn default_kveg() -> f32 {
 fn default_ksky() -> f32 {
     0.7
 }
+// ExG on linear chromaticity: sunlit leaves ≈0.3–0.7, shaded leaves ≈0.15,
+// algae-stained concrete or green bounce light ≈0.02–0.06 (must stay out).
 fn default_veg_lo() -> f32 {
-    0.02
+    0.07
 }
 fn default_veg_hi() -> f32 {
-    0.12
+    0.2
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -333,9 +351,10 @@ pub enum BlurField {
     Slice,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Aperture {
+    #[default]
     Circle,
     Polygon {
         blades: u32,
@@ -352,13 +371,7 @@ pub enum Aperture {
     },
 }
 
-impl Default for Aperture {
-    fn default() -> Self {
-        Aperture::Circle
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LensOptics {
     #[serde(default)]
     pub field: BlurField,
@@ -406,7 +419,23 @@ pub struct LensOptics {
     /// Highlight boost before blur (so specular points become bokeh shapes).
     #[serde(default = "default_hl_gain")]
     pub highlight_gain: f32,
+    /// The blur field is an optical property of the lens (Lensbaby sweet
+    /// spot / tilt slice), so with a depth map it is *combined* with depth
+    /// defocus. When false (classic lenses) the field was only a stand-in for
+    /// depth and a depth map *replaces* it.
+    #[serde(default)]
+    pub field_optical: bool,
+    /// Depth defocus strength: >1 = background goes soft faster.
+    #[serde(default = "one")]
+    pub depth_scale: f32,
 }
+impl Default for LensOptics {
+    /// Same values as an empty `[optics]` table, so presets and code agree.
+    fn default() -> Self {
+        serde_json::from_str("{}").expect("all LensOptics fields have serde defaults")
+    }
+}
+
 fn default_falloff() -> f32 {
     0.5
 }

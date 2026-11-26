@@ -33,7 +33,11 @@ pub fn apply(img: &mut ImageF32, spec: &HalationSpec, user: f32) {
     let (w, h) = (small.w, small.h);
     let mut src = MaskF32::new(w, h);
     src.data.par_iter_mut().enumerate().for_each(|(i, v)| {
-        let c = [small.data[i * 3], small.data[i * 3 + 1], small.data[i * 3 + 2]];
+        let c = [
+            small.data[i * 3],
+            small.data[i * 3 + 1],
+            small.data[i * 3 + 2],
+        ];
         *v = source(c, spec.threshold);
     });
     // Per channel accumulated halo.
@@ -44,7 +48,10 @@ pub fn apply(img: &mut ImageF32, spec: &HalationSpec, user: f32) {
             for (sig, wt) in LOBES {
                 let mut m = src.clone();
                 gaussian_mask(&mut m, sig * w as f32 * spec.radius * ch_r);
-                acc.data.iter_mut().zip(m.data.iter()).for_each(|(a, b)| *a += wt * b);
+                acc.data
+                    .iter_mut()
+                    .zip(m.data.iter())
+                    .for_each(|(a, b)| *a += wt * b);
             }
         }
         halo.push(acc);
@@ -70,7 +77,14 @@ mod tests {
     fn no_halation_below_threshold() {
         let mut img = ImageF32::filled(64, 64, [0.5, 0.5, 0.5]);
         let before = img.data.clone();
-        apply(&mut img, &HalationSpec { strength: 1.0, ..Default::default() }, 1.0);
+        apply(
+            &mut img,
+            &HalationSpec {
+                strength: 1.0,
+                ..Default::default()
+            },
+            1.0,
+        );
         assert_eq!(before, img.data);
     }
 
@@ -82,7 +96,14 @@ mod tests {
                 img.set(x, y, [50.0, 50.0, 50.0]);
             }
         }
-        apply(&mut img, &HalationSpec { strength: 0.3, ..Default::default() }, 1.0);
+        apply(
+            &mut img,
+            &HalationSpec {
+                strength: 0.3,
+                ..Default::default()
+            },
+            1.0,
+        );
         let p = img.get(128, 136);
         assert!(p[0] > p[1] && p[1] > p[2], "{p:?}");
     }

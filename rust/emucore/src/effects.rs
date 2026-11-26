@@ -91,7 +91,11 @@ impl Effect for LightLeak {
                 let r = size * rng.range(0.6, 1.4);
                 let inten = rng.range(0.5, 1.2);
                 let hue = rng.range(-0.15, 0.15);
-                let col = [color[0], (color[1] + hue).max(0.0), (color[2] + hue * 0.3).max(0.0)];
+                let col = [
+                    color[0],
+                    (color[1] + hue).max(0.0),
+                    (color[2] + hue * 0.3).max(0.0),
+                ];
                 (cx, cy, r, inten, col)
             })
             .collect();
@@ -280,7 +284,11 @@ impl Effect for Dust {
             let cy = rng.f() * img.h as f32;
             let hair = rng.f() < 0.2;
             let r = rng.range(0.6, 2.2) * scale;
-            let len = if hair { rng.range(10.0, 40.0) * scale } else { 0.0 };
+            let len = if hair {
+                rng.range(10.0, 40.0) * scale
+            } else {
+                0.0
+            };
             let ang = rng.f() * std::f32::consts::TAU;
             let op = rng.range(0.4, 0.9);
             let steps = (len / (r * 0.5)).max(1.0) as usize;
@@ -320,7 +328,14 @@ impl Effect for Scratches {
         let mut rng = Rng::new(ctx.seed ^ 0x5c);
         let n = (self.0.f("count", 4.0) * self.0.strength).round() as usize;
         let lines: Vec<(f32, f32, f32, f32)> = (0..n)
-            .map(|_| (rng.f(), rng.range(0.3, 1.0), rng.range(0.2, 0.7), rng.range(-0.02, 0.02)))
+            .map(|_| {
+                (
+                    rng.f(),
+                    rng.range(0.3, 1.0),
+                    rng.range(0.2, 0.7),
+                    rng.range(-0.02, 0.02),
+                )
+            })
             .collect();
         let tone = if ctx.negative { 1.0 } else { 0.0 };
         let (w, h) = (img.w, img.h);
@@ -336,8 +351,8 @@ impl Effect for Scratches {
                 let d = ((u - cx) / px).abs();
                 let a = (1.0 - smoothstep(0.3, 1.2, d)) * op;
                 if a > 0.0 {
-                    for c in 0..3 {
-                        p[c] = mix(p[c], tone, a);
+                    for v in p.iter_mut() {
+                        *v = mix(*v, tone, a);
                     }
                 }
             }
@@ -442,10 +457,10 @@ impl Effect for DateStamp {
         let core = blur::gaussian(&glyph, (ch_h * 0.02).max(0.5));
         img.par_map_pixels(|x, y, p| {
             let i = (y * glyph.w + x) * 3;
-            for c in 0..3 {
+            for (c, v) in p.iter_mut().enumerate() {
                 let g = core.data[i + c] + bloom.data[i + c] * 0.8;
                 // screen blend
-                p[c] = 1.0 - (1.0 - p[c]) * (1.0 - (g * st).min(1.0));
+                *v = 1.0 - (1.0 - *v) * (1.0 - (g * st).min(1.0));
             }
         });
     }
@@ -467,7 +482,11 @@ impl Effect for Toning {
         let st = self.0.strength;
         img.par_map_pixels(|_, _, p| {
             let l = luma([p[0], p[1], p[2]]).clamp(0.0, 1.0);
-            let toned = [mix(sh[0], hl[0], l) * l.powf(0.8), mix(sh[1], hl[1], l) * l.powf(0.8), mix(sh[2], hl[2], l) * l.powf(0.8)];
+            let toned = [
+                mix(sh[0], hl[0], l) * l.powf(0.8),
+                mix(sh[1], hl[1], l) * l.powf(0.8),
+                mix(sh[2], hl[2], l) * l.powf(0.8),
+            ];
             for c in 0..3 {
                 p[c] = mix(p[c], toned[c].max(0.0) * 1.15, st.min(1.0));
             }
@@ -483,7 +502,11 @@ impl Effect for ColorShift {
     }
     fn apply(&self, img: &mut ImageF32, ctx: &FxCtx) {
         let mut rng = Rng::new(ctx.seed ^ 0xc5);
-        let default = [rng.range(-0.06, 0.08), rng.range(-0.05, 0.06), rng.range(-0.08, 0.05)];
+        let default = [
+            rng.range(-0.06, 0.08),
+            rng.range(-0.05, 0.06),
+            rng.range(-0.08, 0.05),
+        ];
         let cast = self.0.rgb("cast", default);
         let st = self.0.strength;
         let lift = self.0.f("lift", 0.06);
@@ -513,7 +536,14 @@ mod tests {
             let fx = build(&spec).expect(k);
             let mut img = ImageF32::filled(96, 64, [0.4, 0.4, 0.4]);
             img.set(48, 32, [5.0; 3]);
-            fx.apply(&mut img, &FxCtx { seed: 1, negative: true, mono: false });
+            fx.apply(
+                &mut img,
+                &FxCtx {
+                    seed: 1,
+                    negative: true,
+                    mono: false,
+                },
+            );
             assert!(img.data.iter().all(|v| v.is_finite()), "{k} produced NaN");
         }
     }

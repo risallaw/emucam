@@ -17,4 +17,4 @@ plugins {
 }
 
 rootProject.name = "emucam"
-include(":app", ":core-model", ":designsystem", ":native-bridge", ":camera", ":gl-render", ":develop")
+include(":app", ":core-model", ":designsystem", ":native-bridge", ":camera", ":gl-render", ":develop", ":depth")

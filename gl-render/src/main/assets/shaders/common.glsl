@@ -1,5 +1,5 @@
-// Shared uniforms + functions. Formulas mirror rust/emucore (keep in sync;
-// parity is checked by GlParityTest). Uniform values come from
+// Shared uniforms + functions. Formulas mirror rust/emucore by hand (keep in
+// sync: no automated parity test; look for "parity mirror" comments). Uniform values come from
 // EmuNative.previewParamsJson — Kotlin uploads them by name.
 precision highp float;
 precision highp int;
@@ -26,9 +26,15 @@ uniform vec2 uGlow;             // strength, radius
 uniform float uVignette;
 uniform float uVeil;
 uniform vec2 uHighlightK;       // k, knee
+// depth defocus (mirrors rust lens::Defocus / depth::defocus)
+uniform sampler2D uDepth;       // nearness (r), GL uv space; always bound (unit 5)
+uniform float uDepthOn;         // 1 when a live depth map is present and wanted
+uniform float uFocusNear;       // nearness of the focused surface
+uniform vec3 uDepthParams;      // depth_scale, field_optical, wanted
+uniform vec2 uDepthDelta;       // sharp delta, full-blur delta
 // film
 uniform float uExposure;
-uniform vec3 uIr;               // variant, k_veg, k_sky
+uniform vec4 uIr;               // variant, k_veg, k_sky, k_skin
 uniform vec2 uIrVeg;            // lo, hi
 uniform vec3 uHalation;         // strength, threshold, radius
 uniform vec3 uHalationTint;
@@ -58,17 +64,39 @@ float halfDiag() { return 0.5 * length(uOutSize); }
 vec2 focusPx() { return uFocusCenter * uOutSize; }
 vec2 axisPx() { return uField > 1.5 && uField < 2.5 ? focusPx() : 0.5 * uOutSize; }
 
-float coc(vec2 p) {
-    float rmax = uRmax * uOutSize.x;
-    if (rmax <= 0.0 || uField < 0.5) return 0.0;
-    if (uField < 1.5) return rmax;
+// position-based blur, 0..1
+float fieldCoc(vec2 p) {
+    if (uField < 1.5) return 1.0;
     if (uField < 2.5) {
         float d = length(p - focusPx()) / halfDiag();
-        return rmax * smoothstep(uS0, uS0 + uFalloff, d);
+        return smoothstep(uS0, uS0 + uFalloff, d);
     }
     vec2 n = vec2(-sin(uFocusAngle), cos(uFocusAngle));
     float d = abs(dot(p - focusPx(), n)) / halfDiag();
-    return rmax * smoothstep(uS0, uS0 + uFalloff, d);
+    return smoothstep(uS0, uS0 + uFalloff, d);
+}
+
+float nearAt(vec2 p) { return textureLod(uDepth, uvFromImgPx(p), 0.0).r; }
+
+float depthDefocus(float near) {
+    float s = uDepthParams.x;
+    if (s <= 0.0) return 0.0;
+    float full = max(uDepthDelta.y / max(s, 0.05), uDepthDelta.x * 2.0);
+    return smoothstep(uDepthDelta.x, full, abs(near - uFocusNear));
+}
+
+float coc(vec2 p) {
+    float rmax = uRmax * uOutSize.x;
+    if (rmax <= 0.0 || uField < 0.5) return 0.0;
+    if (uDepthOn > 0.5) {
+        float dz = depthDefocus(nearAt(p));
+        if (uDepthParams.y > 0.5) {
+            float f = fieldCoc(p);
+            return rmax * min(sqrt(f * f + dz * dz), 1.0);
+        }
+        return rmax * dz;
+    }
+    return rmax * fieldCoc(p);
 }
 
 // ---- highlight expansion (hue preserving, inverse Reinhard above knee)

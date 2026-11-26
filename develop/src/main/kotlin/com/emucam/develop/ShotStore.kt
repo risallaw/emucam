@@ -39,6 +39,10 @@ class ShotStore(context: Context) {
     fun dir(id: String) = File(root, id)
     fun original(id: String) = File(dir(id), "original.jpg")
     fun developed(id: String) = File(dir(id), "developed.jpg")
+    /** Raw capture-depth network output (little-endian f32), reused by re-develops. */
+    fun depth(id: String) = File(dir(id), "depth.f32")
+    /** Raw segmentation-network logits (little-endian f32, class-major), reused by re-develops. */
+    fun veg(id: String) = File(dir(id), "veg.f32")
 
     fun saveRecipe(id: String, recipe: Recipe) = atomicWrite(File(dir(id), "recipe.json"), recipe.toJson())
     fun recipe(id: String): Recipe = Recipe.fromJson(File(dir(id), "recipe.json").readText())

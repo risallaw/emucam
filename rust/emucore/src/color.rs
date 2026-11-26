@@ -72,9 +72,21 @@ pub fn hue_rotate(c: [f32; 3], deg: f32) -> [f32; 3] {
     let one_c = 1.0 - co;
     // rotation matrix around (k,k,k)
     let m = [
-        [co + k * k * one_c, k * k * one_c - k * s, k * k * one_c + k * s],
-        [k * k * one_c + k * s, co + k * k * one_c, k * k * one_c - k * s],
-        [k * k * one_c - k * s, k * k * one_c + k * s, co + k * k * one_c],
+        [
+            co + k * k * one_c,
+            k * k * one_c - k * s,
+            k * k * one_c + k * s,
+        ],
+        [
+            k * k * one_c + k * s,
+            co + k * k * one_c,
+            k * k * one_c - k * s,
+        ],
+        [
+            k * k * one_c - k * s,
+            k * k * one_c + k * s,
+            co + k * k * one_c,
+        ],
     ];
     mat_mul(&m, c)
 }
@@ -85,7 +97,11 @@ pub fn kelvin_gains(kelvin: f32) -> [f32; 3] {
     // Tanner Helland approximation of blackbody RGB, normalized at 6500K.
     fn bb(k: f32) -> [f32; 3] {
         let t = k / 100.0;
-        let r = if t <= 66.0 { 255.0 } else { 329.698_73 * (t - 60.0).powf(-0.133_204_76) };
+        let r = if t <= 66.0 {
+            255.0
+        } else {
+            329.698_73 * (t - 60.0).powf(-0.133_204_76)
+        };
         let g = if t <= 66.0 {
             99.470_8 * t.ln() - 161.119_57
         } else {
@@ -109,36 +125,6 @@ pub fn kelvin_gains(kelvin: f32) -> [f32; 3] {
     let g = [c[0] / w[0], c[1] / w[1], c[2] / w[2]];
     let y = luma(g).max(1e-4);
     [g[0] / y, g[1] / y, g[2] / y]
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn srgb_roundtrip() {
-        for i in 0..=255 {
-            let v = i as f32 / 255.0;
-            let r = linear_to_srgb(srgb_to_linear(v));
-            assert!((r - v).abs() < 1e-5, "{v} -> {r}");
-        }
-    }
-
-    #[test]
-    fn hue_rotate_preserves_gray() {
-        let g = hue_rotate([0.4, 0.4, 0.4], 123.0);
-        for c in g {
-            assert!((c - 0.4).abs() < 1e-5);
-        }
-    }
-
-    #[test]
-    fn kelvin_neutral_at_6500() {
-        let g = kelvin_gains(6500.0);
-        for c in g {
-            assert!((c - 1.0).abs() < 1e-3, "{g:?}");
-        }
-    }
 }
 
 /// Apply hue-selective bands in an opponent space (mean, a, b) where the hue
@@ -180,7 +166,37 @@ pub fn hue_bands(c: [f32; 3], bands: &[crate::preset::HueBand]) -> [f32; 3] {
     let (a2, b2) = (a2 * k, b2 * k);
     [
         m2 + a2 * (2.0 / 3.0),
-        m2 - a2 / 3.0 + b2 / (2.0 * S3) ,
+        m2 - a2 / 3.0 + b2 / (2.0 * S3),
         m2 - a2 / 3.0 - b2 / (2.0 * S3),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn srgb_roundtrip() {
+        for i in 0..=255 {
+            let v = i as f32 / 255.0;
+            let r = linear_to_srgb(srgb_to_linear(v));
+            assert!((r - v).abs() < 1e-5, "{v} -> {r}");
+        }
+    }
+
+    #[test]
+    fn hue_rotate_preserves_gray() {
+        let g = hue_rotate([0.4, 0.4, 0.4], 123.0);
+        for c in g {
+            assert!((c - 0.4).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn kelvin_neutral_at_6500() {
+        let g = kelvin_gains(6500.0);
+        for c in g {
+            assert!((c - 1.0).abs() < 1e-3, "{g:?}");
+        }
+    }
 }

@@ -7,6 +7,7 @@ pub mod bokeh;
 
 use crate::blur;
 use crate::color::{luma, smoothstep};
+use crate::depth::{self, DepthField};
 use crate::image::ImageF32;
 use crate::preset::{BlurField, LensOptics};
 
@@ -24,11 +25,28 @@ pub struct Geometry {
 }
 
 impl Geometry {
-    pub fn new(w: usize, h: usize, focus_center: [f32; 2], angle_deg: f32, field: BlurField) -> Self {
+    pub fn new(
+        w: usize,
+        h: usize,
+        focus_center: [f32; 2],
+        angle_deg: f32,
+        field: BlurField,
+    ) -> Self {
         let (w, h) = (w as f32, h as f32);
         let center = [focus_center[0] * w, focus_center[1] * h];
-        let axis = if field == BlurField::SweetSpot { center } else { [w * 0.5, h * 0.5] };
-        Geometry { w, h, half_diag: 0.5 * (w * w + h * h).sqrt(), center, axis, angle: angle_deg.to_radians() }
+        let axis = if field == BlurField::SweetSpot {
+            center
+        } else {
+            [w * 0.5, h * 0.5]
+        };
+        Geometry {
+            w,
+            h,
+            half_diag: 0.5 * (w * w + h * h).sqrt(),
+            center,
+            axis,
+            angle: angle_deg.to_radians(),
+        }
     }
 }
 
@@ -54,6 +72,42 @@ pub fn coc(o: &LensOptics, g: &Geometry, x: f32, y: f32) -> f32 {
             let d = ((x - g.center[0]) * n[0] + (y - g.center[1]) * n[1]).abs() / g.half_diag;
             rmax * smoothstep(o.s0, o.s0 + o.falloff, d)
         }
+    }
+}
+
+/// Per-pixel blur radius from the lens field and (optionally) a depth map.
+pub struct Defocus<'a> {
+    pub optics: &'a LensOptics,
+    pub g: &'a Geometry,
+    pub depth: Option<&'a DepthField>,
+}
+
+impl Defocus<'_> {
+    /// Blur radius in full-res px at pixel position (x, y).
+    #[inline]
+    pub fn at(&self, x: f32, y: f32) -> f32 {
+        let o = self.optics;
+        let Some(d) = self.depth else {
+            return coc(o, self.g, x, y);
+        };
+        let rmax = o.rmax * self.g.w;
+        if rmax <= 0.0 || o.field == BlurField::None {
+            return 0.0;
+        }
+        let dz = depth::defocus(d.near.sample(x, y), d.focus, o.depth_scale);
+        if o.field_optical {
+            // optical field blur and focus blur add like independent spreads
+            let f = coc(o, self.g, x, y) / rmax;
+            rmax * (f * f + dz * dz).sqrt().min(1.0)
+        } else {
+            rmax * dz
+        }
+    }
+
+    /// Nearness at (x, y) when a depth map is present.
+    #[inline]
+    pub fn near(&self, x: f32, y: f32) -> Option<f32> {
+        self.depth.map(|d| d.near.sample(x, y))
     }
 }
 

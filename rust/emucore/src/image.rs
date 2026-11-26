@@ -12,12 +12,18 @@ pub struct ImageF32 {
 
 impl ImageF32 {
     pub fn new(w: usize, h: usize) -> Self {
-        Self { w, h, data: vec![0.0; w * h * 3] }
+        Self {
+            w,
+            h,
+            data: vec![0.0; w * h * 3],
+        }
     }
 
     pub fn filled(w: usize, h: usize, c: [f32; 3]) -> Self {
         let mut img = Self::new(w, h);
-        img.data.chunks_exact_mut(3).for_each(|p| p.copy_from_slice(&c));
+        img.data
+            .chunks_exact_mut(3)
+            .for_each(|p| p.copy_from_slice(&c));
         img
     }
 
@@ -145,7 +151,11 @@ pub struct MaskF32 {
 
 impl MaskF32 {
     pub fn new(w: usize, h: usize) -> Self {
-        Self { w, h, data: vec![0.0; w * h] }
+        Self {
+            w,
+            h,
+            data: vec![0.0; w * h],
+        }
     }
 
     #[inline]

@@ -22,7 +22,7 @@ aperture = { kind = "circle" }
 swirl = 0.12
 cats_eye = 0.7
 bubble = -0.25
-ca_long = 0.25
+ca_long = 0.05  # 0.25 gave saturated rainbow fringes on every blurred edge (device check)
 glow = 0.15
 glow_radius = 0.01
 vignette = 0.45

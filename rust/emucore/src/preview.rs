@@ -46,14 +46,41 @@ pub fn params(res: &Resolved) -> PreviewParams {
     u(&mut m, "uS0", &[o.s0]);
     u(&mut m, "uFalloff", &[o.falloff]);
     u(&mut m, "uRmax", &[o.rmax]);
+    // depth defocus (mirrors lens::Defocus): scale, field is optical, wanted
+    u(
+        &mut m,
+        "uDepthParams",
+        &[
+            o.depth_scale,
+            if o.field_optical { 1.0 } else { 0.0 },
+            if crate::pipeline::wants_depth(res) {
+                1.0
+            } else {
+                0.0
+            },
+        ],
+    );
+    u(
+        &mut m,
+        "uDepthDelta",
+        &[crate::depth::SHARP_DELTA, crate::depth::FULL_BLUR_DELTA],
+    );
     let (ap_kind, ap_a, ap_b) = match &o.aperture {
         Aperture::Circle => (0.0, 0.0, 0.0),
         Aperture::Polygon { blades, rotation } => (1.0, *blades as f32, rotation.to_radians()),
-        Aperture::Shape { id } => (2.0, SHAPE_IDS.iter().position(|s| s == id).unwrap_or(0) as f32, 0.0),
+        Aperture::Shape { id } => (
+            2.0,
+            SHAPE_IDS.iter().position(|s| s == id).unwrap_or(0) as f32,
+            0.0,
+        ),
         Aperture::Slit { ratio, rotation } => (3.0, *ratio, rotation.to_radians()),
     };
     u(&mut m, "uAperture", &[ap_kind, ap_a, ap_b]);
-    u(&mut m, "uApArea", &[crate::lens::aperture::area(&o.aperture)]);
+    u(
+        &mut m,
+        "uApArea",
+        &[crate::lens::aperture::area(&o.aperture)],
+    );
     u(&mut m, "uSwirl", &[o.swirl]);
     u(&mut m, "uCatsEye", &[o.cats_eye]);
     u(&mut m, "uBubble", &[o.bubble]);
@@ -66,10 +93,21 @@ pub fn params(res: &Resolved) -> PreviewParams {
     }
     u(&mut m, "uVignette", &[o.vignette]);
     u(&mut m, "uVeil", &[o.veil]);
-    u(&mut m, "uHighlightK", &[crate::lens::bokeh::highlight_k(o.highlight_gain), crate::lens::bokeh::HL_KNEE]);
+    u(
+        &mut m,
+        "uHighlightK",
+        &[
+            crate::lens::bokeh::highlight_k(o.highlight_gain),
+            crate::lens::bokeh::HL_KNEE,
+        ],
+    );
 
     // ---- film
-    u(&mut m, "uExposure", &[res.params.exposure.clamp(-5.0, 5.0).exp2()]);
+    u(
+        &mut m,
+        "uExposure",
+        &[res.params.exposure.clamp(-5.0, 5.0).exp2()],
+    );
     let mut mono = 0.0;
     if let Some(f) = &res.film {
         defines.push("FILM".into());
@@ -85,7 +123,7 @@ pub fn params(res: &Resolved) -> PreviewParams {
                 IrVariant::Golden => 3.0,
                 IrVariant::Purple => 4.0,
             };
-            u(&mut m, "uIr", &[v, ir.k_veg, ir.k_sky]);
+            u(&mut m, "uIr", &[v, ir.k_veg, ir.k_sky, ir.k_skin]);
             u(&mut m, "uIrVeg", &[ir.veg_lo, ir.veg_hi]);
         }
         let h = &f.halation;
@@ -100,7 +138,11 @@ pub fn params(res: &Resolved) -> PreviewParams {
         if ga > 0.0 {
             defines.push("GRAIN".into());
         }
-        u(&mut m, "uGrain", &[ga, gr.size_um, if mono > 0.0 { 0.0 } else { gr.chroma }]);
+        u(
+            &mut m,
+            "uGrain",
+            &[ga, gr.size_um, if mono > 0.0 { 0.0 } else { gr.chroma }],
+        );
     }
     u(&mut m, "uMono", &[mono]);
     u(&mut m, "uSeed", &[(res.seed % 65_536) as f32]);
@@ -133,7 +175,12 @@ pub fn params(res: &Resolved) -> PreviewParams {
     defines.sort();
     defines.dedup();
     let program_key = defines.join("+");
-    PreviewParams { uniforms: m, defines, program_key, lut_size: PREVIEW_LUT_SIZE }
+    PreviewParams {
+        uniforms: m,
+        defines,
+        program_key,
+        lut_size: PREVIEW_LUT_SIZE,
+    }
 }
 
 /// Convenience: both LUTs as RGBA16F bytes.

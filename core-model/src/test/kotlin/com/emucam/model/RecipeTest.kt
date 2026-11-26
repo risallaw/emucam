@@ -37,4 +37,17 @@ class RecipeTest {
         val q = p.forCaptureRotation(2).focusCenter!!
         assertEquals(0.8f, q[0], 1e-6f); assertEquals(0.7f, q[1], 1e-6f)
     }
+
+    @Test
+    fun redevelopKeepsTheShotsFocusButTakesTheNewLook() {
+        val shot = Recipe(film = "tri-400", lens = "helios-58", params = UserParams(focusCenter = listOf(0.7f, 0.2f), focusAngle = 90f, focusSize = 1.5f))
+        val look = Recipe(film = "aero-ir", lens = "nocti-50", params = UserParams(focusCenter = listOf(0.5f, 0.5f), grain = 0.3f))
+        val r = shot.redevelopWith(look)
+        assertEquals("aero-ir", r.film)
+        assertEquals("nocti-50", r.lens)
+        assertEquals(0.3f, r.params.grain)
+        assertEquals(listOf(0.7f, 0.2f), r.params.focusCenter)
+        assertEquals(90f, r.params.focusAngle)
+        assertEquals(1.5f, r.params.focusSize)
+    }
 }

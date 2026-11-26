@@ -16,48 +16,68 @@ fn kernel(sigma: f32) -> Vec<f32> {
     k
 }
 
-/// Generic separable blur over `ch` interleaved channels.
+/// Generic separable blur over `ch` interleaved channels, clamped borders.
+///
+/// Written as row-wide multiply-adds (for each tap: `out[j] += src[j+off]·k`)
+/// so the inner loop vectorises; every output still sums its taps in the
+/// same order from 0.0, so results are bit-identical to the per-pixel loop
+/// (see `matches_naive_clamped_blur`). ~3× faster, one temp buffer
+/// instead of two.
 fn blur_buf(data: &mut [f32], w: usize, h: usize, ch: usize, sigma: f32) {
     if sigma < 0.3 || w == 0 || h == 0 {
         return;
     }
     let k = kernel(sigma);
-    let r = (k.len() / 2) as isize;
-    // Horizontal
-    let src = data.to_vec();
-    data.par_chunks_exact_mut(w * ch).enumerate().for_each(|(y, row)| {
-        let srow = &src[y * w * ch..(y + 1) * w * ch];
-        for x in 0..w {
-            for c in 0..ch {
-                let mut acc = 0.0;
-                for (i, kv) in k.iter().enumerate() {
-                    let sx = (x as isize + i as isize - r).clamp(0, w as isize - 1) as usize;
-                    acc += srow[sx * ch + c] * kv;
+    let r = k.len() / 2;
+    let stride = w * ch;
+    // Horizontal: data → tmp.
+    let mut tmp = vec![0.0f32; data.len()];
+    tmp.par_chunks_exact_mut(stride)
+        .zip(data.par_chunks_exact(stride))
+        .for_each(|(row, srow)| {
+            if w > 2 * r {
+                // interior x ∈ [r, w−r): no clamping needed
+                let (j0, j1) = (r * ch, (w - r) * ch);
+                for (i, &kv) in k.iter().enumerate() {
+                    let src = &srow[i * ch..i * ch + (j1 - j0)];
+                    for (a, &v) in row[j0..j1].iter_mut().zip(src) {
+                        *a += v * kv;
+                    }
                 }
-                row[x * ch + c] = acc;
             }
-        }
-    });
-    // Vertical
-    let src = data.to_vec();
-    data.par_chunks_exact_mut(w * ch).enumerate().for_each(|(y, row)| {
-        for x in 0..w {
-            for c in 0..ch {
-                let mut acc = 0.0;
-                for (i, kv) in k.iter().enumerate() {
-                    let sy = (y as isize + i as isize - r).clamp(0, h as isize - 1) as usize;
-                    acc += src[(sy * w + x) * ch + c] * kv;
+            for x in (0..w).filter(|&x| x < r || x + r >= w) {
+                for c in 0..ch {
+                    let mut acc = 0.0;
+                    for (i, kv) in k.iter().enumerate() {
+                        let sx = (x + i).saturating_sub(r).min(w - 1);
+                        acc += srow[sx * ch + c] * kv;
+                    }
+                    row[x * ch + c] = acc;
                 }
-                row[x * ch + c] = acc;
             }
-        }
-    });
+        });
+    // Vertical: tmp → data (clamp the row, not the pixel).
+    data.par_chunks_exact_mut(stride)
+        .enumerate()
+        .for_each(|(y, row)| {
+            row.fill(0.0);
+            for (i, &kv) in k.iter().enumerate() {
+                let sy = (y + i).saturating_sub(r).min(h - 1);
+                for (a, &v) in row.iter_mut().zip(&tmp[sy * stride..(sy + 1) * stride]) {
+                    *a += v * kv;
+                }
+            }
+        });
 }
 
 /// Gaussian blur at full resolution. Large sigmas are computed on a downscaled
 /// copy and upsampled (visually identical for smooth results, much faster).
 pub fn gaussian(img: &ImageF32, sigma: f32) -> ImageF32 {
-    let factor = if sigma > 8.0 { ((sigma / 4.0) as usize).max(1) } else { 1 };
+    let factor = if sigma > 8.0 {
+        ((sigma / 4.0) as usize).max(1)
+    } else {
+        1
+    };
     if factor > 1 {
         let mut small = img.downsample(factor);
         let (w, h) = (small.w, small.h);
@@ -83,6 +103,57 @@ pub fn gaussian_mask(m: &mut MaskF32, sigma: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The original per-pixel formulation, kept as the reference.
+    fn naive(data: &[f32], w: usize, h: usize, ch: usize, sigma: f32) -> Vec<f32> {
+        let k = kernel(sigma);
+        let r = (k.len() / 2) as isize;
+        let mut a = data.to_vec();
+        for y in 0..h {
+            for x in 0..w {
+                for c in 0..ch {
+                    let mut acc = 0.0;
+                    for (i, kv) in k.iter().enumerate() {
+                        let sx = (x as isize + i as isize - r).clamp(0, w as isize - 1) as usize;
+                        acc += data[(y * w + sx) * ch + c] * kv;
+                    }
+                    a[(y * w + x) * ch + c] = acc;
+                }
+            }
+        }
+        let mut b = a.clone();
+        for y in 0..h {
+            for x in 0..w {
+                for c in 0..ch {
+                    let mut acc = 0.0;
+                    for (i, kv) in k.iter().enumerate() {
+                        let sy = (y as isize + i as isize - r).clamp(0, h as isize - 1) as usize;
+                        acc += a[(sy * w + x) * ch + c] * kv;
+                    }
+                    b[(y * w + x) * ch + c] = acc;
+                }
+            }
+        }
+        b
+    }
+
+    #[test]
+    fn matches_naive_clamped_blur() {
+        // sizes below, at and above the kernel width (interior empty / tiny)
+        for (w, h, ch, sigma) in [
+            (37, 23, 3, 2.5),
+            (5, 40, 1, 3.0),
+            (64, 3, 3, 1.2),
+            (13, 13, 1, 2.0),
+        ] {
+            let data: Vec<f32> = (0..w * h * ch)
+                .map(|i| ((i * 7919) % 101) as f32 / 101.0)
+                .collect();
+            let mut got = data.clone();
+            blur_buf(&mut got, w, h, ch, sigma);
+            assert_eq!(got, naive(&data, w, h, ch, sigma), "{w}x{h}x{ch} σ{sigma}");
+        }
+    }
 
     #[test]
     fn blur_preserves_mean() {

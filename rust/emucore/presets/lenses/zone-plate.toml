@@ -7,6 +7,8 @@ note = "Diffraction rings: a soft core with a huge glowing halo"
 category = "Obscura"
 color = "#78909C"
 [optics]
+field_optical = true
+depth_scale = 0.0  # pinholes have no focus plane: depth adds no blur
 field = "uniform"
 rmax = 0.003
 glow = 0.7

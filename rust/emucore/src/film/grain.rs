@@ -8,15 +8,24 @@ use crate::noise::{gauss3, pcg3d};
 use crate::preset::GrainSpec;
 use rayon::prelude::*;
 
-const OCTAVES: [(f32, f32); 3] = [(0.5, 0.6), (1.0, 0.3), (2.0, 0.1)];
+// (size multiplier, weight). No coarse (2×) octave: at phone resolutions it
+// read as mottled smear over fine detail rather than grain.
+const OCTAVES: [(f32, f32); 2] = [(0.5, 0.7), (1.0, 0.3)];
 
 fn noise_field(w: usize, h: usize, seed: u32, layer: u32, sigma: f32) -> MaskF32 {
     let mut m = MaskF32::new(w, h);
-    m.data.par_chunks_exact_mut(w).enumerate().for_each(|(y, row)| {
-        for (x, v) in row.iter_mut().enumerate() {
-            *v = gauss3(pcg3d([x as u32, y as u32, seed ^ layer.wrapping_mul(0x9E37_79B9)]));
-        }
-    });
+    m.data
+        .par_chunks_exact_mut(w)
+        .enumerate()
+        .for_each(|(y, row)| {
+            for (x, v) in row.iter_mut().enumerate() {
+                *v = gauss3(pcg3d([
+                    x as u32,
+                    y as u32,
+                    seed ^ layer.wrapping_mul(0x9E37_79B9),
+                ]));
+            }
+        });
     if sigma >= 0.3 {
         gaussian_mask(&mut m, sigma);
         // Blurred unit white noise has std 1/(2·sqrt(pi)·σ); renormalize.
@@ -53,22 +62,37 @@ pub fn apply(img: &mut ImageF32, spec: &GrainSpec, user: f32, seed: u64, mono: b
     let mut lum = MaskF32::new(w, h);
     for (i, (mul, wt)) in OCTAVES.iter().enumerate() {
         let f = noise_field(w, h, seed32, i as u32, s * mul);
-        lum.data.iter_mut().zip(f.data.iter()).for_each(|(a, b)| *a += b * wt / wsum);
+        lum.data
+            .iter_mut()
+            .zip(f.data.iter())
+            .for_each(|(a, b)| *a += b * wt / wsum);
     }
-    let chroma = if mono { 0.0 } else { spec.chroma.clamp(0.0, 1.0) };
+    let chroma = if mono {
+        0.0
+    } else {
+        spec.chroma.clamp(0.0, 1.0)
+    };
     let chans: Vec<MaskF32> = if chroma > 0.0 {
-        (0..3).map(|c| noise_field(w, h, seed32, 10 + c, s)).collect()
+        (0..3)
+            .map(|c| noise_field(w, h, seed32, 10 + c, s))
+            .collect()
     } else {
         vec![]
     };
     let a_l = (1.0 - chroma).sqrt();
     let a_c = chroma.sqrt();
-    let amp = amount * 0.18 * grain_resolution_scale(spec, w);
+    // 0.10: at 12 MP the old 0.18 (≈6/255 rms in mids) erased text-sized
+    // detail; this keeps visible texture without eating the image.
+    let amp = amount * 0.10 * grain_resolution_scale(spec, w);
     img.par_map_pixels(|x, y, p| {
         let i = y * w + x;
         let n = lum.data[i];
         for c in 0..3 {
-            let nc = if chroma > 0.0 { a_l * n + a_c * chans[c].data[i] } else { n };
+            let nc = if chroma > 0.0 {
+                a_l * n + a_c * chans[c].data[i]
+            } else {
+                n
+            };
             let v = p[c].clamp(0.0, 1.0);
             p[c] = v + amp * nc * (v * (1.0 - v)).sqrt();
         }
@@ -81,7 +105,11 @@ mod tests {
 
     #[test]
     fn grain_is_mean_preserving_and_midtone_peaked() {
-        let spec = GrainSpec { amount: 0.5, size_um: 15.0, chroma: 0.0 };
+        let spec = GrainSpec {
+            amount: 0.5,
+            size_um: 15.0,
+            chroma: 0.0,
+        };
         let mut mid = ImageF32::filled(512, 512, [0.5; 3]);
         let mut dark = ImageF32::filled(512, 512, [0.02; 3]);
         apply(&mut mid, &spec, 1.0, 7, true);
@@ -89,7 +117,13 @@ mod tests {
         let stats = |img: &ImageF32| {
             let n = (img.w * img.h) as f32;
             let m: f32 = img.data.iter().step_by(3).sum::<f32>() / n;
-            let v: f32 = img.data.iter().step_by(3).map(|x| (x - m) * (x - m)).sum::<f32>() / n;
+            let v: f32 = img
+                .data
+                .iter()
+                .step_by(3)
+                .map(|x| (x - m) * (x - m))
+                .sum::<f32>()
+                / n;
             (m, v.sqrt())
         };
         let (mm, ms) = stats(&mid);
@@ -100,7 +134,11 @@ mod tests {
 
     #[test]
     fn deterministic_for_seed() {
-        let spec = GrainSpec { amount: 0.3, size_um: 15.0, chroma: 0.3 };
+        let spec = GrainSpec {
+            amount: 0.3,
+            size_um: 15.0,
+            chroma: 0.3,
+        };
         let mut a = ImageF32::filled(64, 64, [0.4; 3]);
         let mut b = a.clone();
         apply(&mut a, &spec, 1.0, 42, false);

@@ -3,7 +3,9 @@
 //! concrete parameters using the catalog.
 
 use crate::catalog::Catalog;
-use crate::preset::{Aperture, BlurField, EffectSpec, FilmPreset, LensOptics, LensPreset, SeedMode};
+use crate::preset::{
+    Aperture, BlurField, EffectSpec, FilmPreset, LensOptics, LensPreset, SeedMode,
+};
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -38,7 +40,10 @@ fn v1() -> u32 {
 
 impl PartialEq for EffectSpec {
     fn eq(&self, o: &Self) -> bool {
-        self.kind == o.kind && self.id == o.id && self.strength == o.strength && self.params == o.params
+        self.kind == o.kind
+            && self.id == o.id
+            && self.strength == o.strength
+            && self.params == o.params
     }
 }
 
@@ -76,9 +81,15 @@ pub struct UserParams {
     pub aperture_shape: Option<String>,
     #[serde(default)]
     pub values: BTreeMap<String, f32>,
+    /// Use the shot's depth map (when one exists) for defocus.
+    #[serde(default = "yes")]
+    pub depth: bool,
 }
 fn one() -> f32 {
     1.0
+}
+fn yes() -> bool {
+    true
 }
 
 impl Default for UserParams {
@@ -95,6 +106,7 @@ impl Default for UserParams {
             focus_angle: 0.0,
             aperture_shape: None,
             values: BTreeMap::new(),
+            depth: true,
         }
     }
 }
@@ -116,7 +128,8 @@ impl Default for Recipe {
 
 impl Recipe {
     pub fn from_json(s: &str) -> Result<Self, Error> {
-        let mut v: serde_json::Value = serde_json::from_str(s).map_err(|e| Error::Recipe(e.to_string()))?;
+        let mut v: serde_json::Value =
+            serde_json::from_str(s).map_err(|e| Error::Recipe(e.to_string()))?;
         migrate(&mut v);
         serde_json::from_value(v).map_err(|e| Error::Recipe(e.to_string()))
     }
@@ -154,7 +167,11 @@ impl Resolved {
         if let Some(v) = self.params.values.get(key) {
             return Some(*v);
         }
-        let metas = self.lens.iter().map(|l| &l.ui).chain(self.film.iter().map(|f| &f.ui));
+        let metas = self
+            .lens
+            .iter()
+            .map(|l| &l.ui)
+            .chain(self.film.iter().map(|f| &f.ui));
         for m in metas {
             if let Some(c) = m.controls.iter().find(|c| c.key == key) {
                 return Some(c.default);
@@ -166,17 +183,37 @@ impl Resolved {
 
 pub fn resolve(recipe: &Recipe, cat: &Catalog) -> Result<Resolved, Error> {
     let body = match &recipe.body {
-        Some(id) => Some(cat.bodies.get(id).ok_or_else(|| Error::UnknownPreset(format!("body {id}")))?),
+        Some(id) => Some(
+            cat.bodies
+                .get(id)
+                .ok_or_else(|| Error::UnknownPreset(format!("body {id}")))?,
+        ),
         None => None,
     };
-    let film_id = recipe.film.clone().or_else(|| body.and_then(|b| b.film.clone()));
-    let lens_id = recipe.lens.clone().or_else(|| body.and_then(|b| b.lens.clone()));
+    let film_id = recipe
+        .film
+        .clone()
+        .or_else(|| body.and_then(|b| b.film.clone()));
+    let lens_id = recipe
+        .lens
+        .clone()
+        .or_else(|| body.and_then(|b| b.lens.clone()));
     let film = match film_id {
-        Some(id) => Some(cat.films.get(&id).cloned().ok_or_else(|| Error::UnknownPreset(format!("film {id}")))?),
+        Some(id) => Some(
+            cat.films
+                .get(&id)
+                .cloned()
+                .ok_or_else(|| Error::UnknownPreset(format!("film {id}")))?,
+        ),
         None => None,
     };
     let lens = match lens_id {
-        Some(id) => Some(cat.lenses.get(&id).cloned().ok_or_else(|| Error::UnknownPreset(format!("lens {id}")))?),
+        Some(id) => Some(
+            cat.lenses
+                .get(&id)
+                .cloned()
+                .ok_or_else(|| Error::UnknownPreset(format!("lens {id}")))?,
+        ),
         None => None,
     };
 
@@ -249,7 +286,12 @@ pub fn resolve(recipe: &Recipe, cat: &Catalog) -> Result<Resolved, Error> {
 
 /// Seed for an effect instance: fixed effects ignore the shot seed.
 pub fn effect_seed(e: &EffectSpec, shot_seed: u64, index: usize) -> u64 {
-    let base = crate::noise::hash64(e.kind.as_bytes().iter().fold(0u64, |a, b| a.wrapping_mul(31).wrapping_add(*b as u64)));
+    let base = crate::noise::hash64(
+        e.kind
+            .as_bytes()
+            .iter()
+            .fold(0u64, |a, b| a.wrapping_mul(31).wrapping_add(*b as u64)),
+    );
     match e.seed_mode {
         SeedMode::Fixed => base ^ index as u64,
         SeedMode::PerShot => base ^ crate::noise::hash64(shot_seed.wrapping_add(index as u64)),
@@ -273,7 +315,11 @@ mod tests {
         let cat = Catalog::builtin();
         for f in cat.films.keys() {
             for l in cat.lenses.keys().take(3) {
-                let r = Recipe { film: Some(f.clone()), lens: Some(l.clone()), ..Default::default() };
+                let r = Recipe {
+                    film: Some(f.clone()),
+                    lens: Some(l.clone()),
+                    ..Default::default()
+                };
                 resolve(&r, cat).unwrap();
             }
         }

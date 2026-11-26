@@ -41,6 +41,8 @@ data class UserParams(
     @SerialName("focus_angle") val focusAngle: Float = 0f,
     @SerialName("aperture_shape") val apertureShape: String? = null,
     val values: Map<String, Float> = emptyMap(),
+    /** Use depth (estimated per shot) for defocus when the lens supports it. */
+    val depth: Boolean = true,
 )
 
 val EmuJson = Json {
@@ -72,3 +74,16 @@ fun UserParams.forCaptureRotation(surfaceRotation: Int): UserParams {
     }
     return copy(focusCenter = c, focusAngle = ((a % 360f) + 360f) % 360f)
 }
+
+/**
+ * Re-develop this shot with another [look] (film, lens, body, effects,
+ * sliders) while keeping the shot's own focus geometry: the viewfinder's
+ * current focus point belongs to a different frame (and orientation).
+ */
+fun Recipe.redevelopWith(look: Recipe): Recipe = look.copy(
+    params = look.params.copy(
+        focusCenter = params.focusCenter,
+        focusAngle = params.focusAngle,
+        focusSize = params.focusSize,
+    ),
+)

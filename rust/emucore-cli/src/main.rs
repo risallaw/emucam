@@ -30,8 +30,13 @@ impl Args {
         let mut opts: HashMap<String, Vec<String>> = HashMap::new();
         let mut it = std::env::args().skip(1).peekable();
         while let Some(a) = it.next() {
-            if let Some(k) = a.strip_prefix("--").or_else(|| a.strip_prefix('-').filter(|s| s.len() == 1)) {
-                let v = it.next().unwrap_or_else(|| die(format!("missing value for {a}")));
+            if let Some(k) = a
+                .strip_prefix("--")
+                .or_else(|| a.strip_prefix('-').filter(|s| s.len() == 1))
+            {
+                let v = it
+                    .next()
+                    .unwrap_or_else(|| die(format!("missing value for {a}")));
                 opts.entry(k.to_string()).or_default().push(v);
             } else {
                 pos.push(a);
@@ -43,7 +48,10 @@ impl Args {
         self.opts.get(k).and_then(|v| v.last()).map(|s| s.as_str())
     }
     fn f(&self, k: &str) -> Option<f32> {
-        self.get(k).map(|v| v.parse().unwrap_or_else(|_| die(format!("bad number for --{k}"))))
+        self.get(k).map(|v| {
+            v.parse()
+                .unwrap_or_else(|_| die(format!("bad number for --{k}")))
+        })
     }
 }
 
@@ -61,7 +69,8 @@ fn load_input(path: &str, max: Option<usize>) -> ImageF32 {
 
 fn recipe_from_args(a: &Args) -> Recipe {
     let mut r = match a.get("recipe") {
-        Some(p) => Recipe::from_json(&std::fs::read_to_string(p).unwrap_or_else(|e| die(e))).unwrap_or_else(|e| die(e)),
+        Some(p) => Recipe::from_json(&std::fs::read_to_string(p).unwrap_or_else(|e| die(e)))
+            .unwrap_or_else(|e| die(e)),
         None => Recipe::default(),
     };
     if let Some(v) = a.get("film") {
@@ -105,13 +114,69 @@ fn recipe_from_args(a: &Args) -> Recipe {
     }
     for kv in a.opts.get("set").into_iter().flatten() {
         if let Some((k, v)) = kv.split_once('=') {
-            r.params.values.insert(k.into(), v.parse().unwrap_or_else(|_| die(format!("bad --set {kv}"))));
+            r.params.values.insert(
+                k.into(),
+                v.parse().unwrap_or_else(|_| die(format!("bad --set {kv}"))),
+            );
         }
     }
     for d in a.opts.get("disable").into_iter().flatten() {
         r.disabled_effects.push(d.clone());
     }
     r
+}
+
+/// `--depth raw.f32 --depth-size WxH [--depth-kind depth|inverse]`: raw
+/// little-endian f32 network output in its portrait layout.
+fn depth_from_args(a: &Args, img: &ImageF32) -> Option<emucore::image::MaskF32> {
+    let path = a.get("depth")?;
+    let bytes = std::fs::read(path).unwrap_or_else(|e| die(format!("{path}: {e}")));
+    let raw: Vec<f32> = bytes
+        .chunks_exact(4)
+        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        .collect();
+    let size = a
+        .get("depth-size")
+        .unwrap_or_else(|| die("--depth needs --depth-size WxH"));
+    let (w, h) = size
+        .split_once('x')
+        .and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)))
+        .unwrap_or_else(|| die("--depth-size WxH"));
+    let kind = match a.get("depth-kind").unwrap_or("depth") {
+        "depth" => emucore::depth::DepthKind::Depth,
+        "inverse" => emucore::depth::DepthKind::InverseDepth,
+        k => die(format!("--depth-kind depth|inverse, got {k}")),
+    };
+    let m = emucore::depth::nearness(&raw, w, h, kind, img.w, img.h);
+    if m.is_none() {
+        eprintln!("warning: unusable depth map, falling back to the lens field");
+    }
+    m
+}
+
+/// `--veg raw.f32 --veg-size CxWxH`: raw little-endian f32 segmentation
+/// logits (NCHW) for the vegetation class.
+fn veg_from_args(a: &Args) -> Option<emucore::image::MaskF32> {
+    let path = a.get("veg")?;
+    let bytes = std::fs::read(path).unwrap_or_else(|e| die(format!("{path}: {e}")));
+    let raw: Vec<f32> = bytes
+        .chunks_exact(4)
+        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        .collect();
+    let dims: Vec<usize> = a
+        .get("veg-size")
+        .unwrap_or_else(|| die("--veg needs --veg-size CxWxH"))
+        .split('x')
+        .map(|v| v.parse().unwrap_or_else(|_| die("--veg-size CxWxH")))
+        .collect();
+    let [c, w, h] = dims[..] else {
+        die("--veg-size CxWxH")
+    };
+    let m = emucore::seg::vegetation(&raw, c, w, h);
+    if m.is_none() {
+        eprintln!("warning: unusable segmentation map, falling back to colour-only");
+    }
+    m
 }
 
 fn render(img: &ImageF32, r: &Recipe, cat: &Catalog) -> ImageF32 {
@@ -124,7 +189,8 @@ fn save(img: &ImageF32, out: &str) {
     if out.ends_with(".png") {
         io::to_rgb8(img).save(&path).unwrap_or_else(|e| die(e));
     } else {
-        std::fs::write(&path, io::encode_jpeg(img, 92).unwrap_or_else(|e| die(e))).unwrap_or_else(|e| die(e));
+        std::fs::write(&path, io::encode_jpeg(img, 92).unwrap_or_else(|e| die(e)))
+            .unwrap_or_else(|e| die(e));
     }
     eprintln!("wrote {out} ({}x{})", img.w, img.h);
 }
@@ -132,23 +198,53 @@ fn save(img: &ImageF32, out: &str) {
 /// Tiny 5x7 bitmap font for contact-sheet labels.
 fn draw_label(img: &mut ImageF32, x0: usize, y0: usize, text: &str, scale: usize) {
     const FONT: &[(char, [u8; 7])] = &[
-        ('A', [14, 17, 17, 31, 17, 17, 17]), ('B', [30, 17, 17, 30, 17, 17, 30]), ('C', [14, 17, 16, 16, 16, 17, 14]),
-        ('D', [30, 17, 17, 17, 17, 17, 30]), ('E', [31, 16, 16, 30, 16, 16, 31]), ('F', [31, 16, 16, 30, 16, 16, 16]),
-        ('G', [14, 17, 16, 23, 17, 17, 15]), ('H', [17, 17, 17, 31, 17, 17, 17]), ('I', [14, 4, 4, 4, 4, 4, 14]),
-        ('J', [7, 2, 2, 2, 2, 18, 12]), ('K', [17, 18, 20, 24, 20, 18, 17]), ('L', [16, 16, 16, 16, 16, 16, 31]),
-        ('M', [17, 27, 21, 21, 17, 17, 17]), ('N', [17, 17, 25, 21, 19, 17, 17]), ('O', [14, 17, 17, 17, 17, 17, 14]),
-        ('P', [30, 17, 17, 30, 16, 16, 16]), ('Q', [14, 17, 17, 17, 21, 18, 13]), ('R', [30, 17, 17, 30, 20, 18, 17]),
-        ('S', [15, 16, 16, 14, 1, 1, 30]), ('T', [31, 4, 4, 4, 4, 4, 4]), ('U', [17, 17, 17, 17, 17, 17, 14]),
-        ('V', [17, 17, 17, 17, 17, 10, 4]), ('W', [17, 17, 17, 21, 21, 21, 10]), ('X', [17, 17, 10, 4, 10, 17, 17]),
-        ('Y', [17, 17, 10, 4, 4, 4, 4]), ('Z', [31, 1, 2, 4, 8, 16, 31]), ('0', [14, 17, 19, 21, 25, 17, 14]),
-        ('1', [4, 12, 4, 4, 4, 4, 14]), ('2', [14, 17, 1, 2, 4, 8, 31]), ('3', [30, 1, 1, 14, 1, 1, 30]),
-        ('4', [2, 6, 10, 18, 31, 2, 2]), ('5', [31, 16, 30, 1, 1, 17, 14]), ('6', [6, 8, 16, 30, 17, 17, 14]),
-        ('7', [31, 1, 2, 4, 8, 8, 8]), ('8', [14, 17, 17, 14, 17, 17, 14]), ('9', [14, 17, 17, 15, 1, 2, 12]),
-        ('-', [0, 0, 0, 31, 0, 0, 0]), ('.', [0, 0, 0, 0, 0, 12, 12]), (' ', [0; 7]),
+        ('A', [14, 17, 17, 31, 17, 17, 17]),
+        ('B', [30, 17, 17, 30, 17, 17, 30]),
+        ('C', [14, 17, 16, 16, 16, 17, 14]),
+        ('D', [30, 17, 17, 17, 17, 17, 30]),
+        ('E', [31, 16, 16, 30, 16, 16, 31]),
+        ('F', [31, 16, 16, 30, 16, 16, 16]),
+        ('G', [14, 17, 16, 23, 17, 17, 15]),
+        ('H', [17, 17, 17, 31, 17, 17, 17]),
+        ('I', [14, 4, 4, 4, 4, 4, 14]),
+        ('J', [7, 2, 2, 2, 2, 18, 12]),
+        ('K', [17, 18, 20, 24, 20, 18, 17]),
+        ('L', [16, 16, 16, 16, 16, 16, 31]),
+        ('M', [17, 27, 21, 21, 17, 17, 17]),
+        ('N', [17, 17, 25, 21, 19, 17, 17]),
+        ('O', [14, 17, 17, 17, 17, 17, 14]),
+        ('P', [30, 17, 17, 30, 16, 16, 16]),
+        ('Q', [14, 17, 17, 17, 21, 18, 13]),
+        ('R', [30, 17, 17, 30, 20, 18, 17]),
+        ('S', [15, 16, 16, 14, 1, 1, 30]),
+        ('T', [31, 4, 4, 4, 4, 4, 4]),
+        ('U', [17, 17, 17, 17, 17, 17, 14]),
+        ('V', [17, 17, 17, 17, 17, 10, 4]),
+        ('W', [17, 17, 17, 21, 21, 21, 10]),
+        ('X', [17, 17, 10, 4, 10, 17, 17]),
+        ('Y', [17, 17, 10, 4, 4, 4, 4]),
+        ('Z', [31, 1, 2, 4, 8, 16, 31]),
+        ('0', [14, 17, 19, 21, 25, 17, 14]),
+        ('1', [4, 12, 4, 4, 4, 4, 14]),
+        ('2', [14, 17, 1, 2, 4, 8, 31]),
+        ('3', [30, 1, 1, 14, 1, 1, 30]),
+        ('4', [2, 6, 10, 18, 31, 2, 2]),
+        ('5', [31, 16, 30, 1, 1, 17, 14]),
+        ('6', [6, 8, 16, 30, 17, 17, 14]),
+        ('7', [31, 1, 2, 4, 8, 8, 8]),
+        ('8', [14, 17, 17, 14, 17, 17, 14]),
+        ('9', [14, 17, 17, 15, 1, 2, 12]),
+        ('-', [0, 0, 0, 31, 0, 0, 0]),
+        ('.', [0, 0, 0, 0, 0, 12, 12]),
+        (' ', [0; 7]),
     ];
     let mut x = x0;
     for ch in text.to_uppercase().chars() {
-        let rows = FONT.iter().find(|(c, _)| *c == ch).map(|(_, r)| *r).unwrap_or([0; 7]);
+        let rows = FONT
+            .iter()
+            .find(|(c, _)| *c == ch)
+            .map(|(_, r)| *r)
+            .unwrap_or([0; 7]);
         for (ry, bits) in rows.iter().enumerate() {
             for rx in 0..5 {
                 if bits & (1 << (4 - rx)) != 0 {
@@ -169,16 +265,55 @@ fn draw_label(img: &mut ImageF32, x0: usize, y0: usize, text: &str, scale: usize
 }
 
 fn sheet(a: &Args, cat: &Catalog) {
-    let input = a.pos.get(1).unwrap_or_else(|| die("sheet <in.jpg> -o out.jpg"));
+    let input = a
+        .pos
+        .get(1)
+        .unwrap_or_else(|| die("sheet <in.jpg> -o out.jpg"));
     let out = a.get("o").unwrap_or("sheet.jpg");
     let max = a.f("max").map(|v| v as usize).unwrap_or(640);
     let img = load_input(input, Some(max));
     let kind = a.get("kind").unwrap_or("films");
     let base = recipe_from_args(a);
     let variants: Vec<(String, Recipe)> = match kind {
-        "films" => cat.films.values().map(|f| (f.ui.name.clone(), Recipe { film: Some(f.id.clone()), ..base.clone() })).collect(),
-        "lenses" => cat.lenses.values().map(|l| (l.ui.name.clone(), Recipe { lens: Some(l.id.clone()), ..base.clone() })).collect(),
-        "bodies" => cat.bodies.values().map(|b| (b.ui.name.clone(), Recipe { body: Some(b.id.clone()), ..base.clone() })).collect(),
+        "films" => cat
+            .films
+            .values()
+            .map(|f| {
+                (
+                    f.ui.name.clone(),
+                    Recipe {
+                        film: Some(f.id.clone()),
+                        ..base.clone()
+                    },
+                )
+            })
+            .collect(),
+        "lenses" => cat
+            .lenses
+            .values()
+            .map(|l| {
+                (
+                    l.ui.name.clone(),
+                    Recipe {
+                        lens: Some(l.id.clone()),
+                        ..base.clone()
+                    },
+                )
+            })
+            .collect(),
+        "bodies" => cat
+            .bodies
+            .values()
+            .map(|b| {
+                (
+                    b.ui.name.clone(),
+                    Recipe {
+                        body: Some(b.id.clone()),
+                        ..base.clone()
+                    },
+                )
+            })
+            .collect(),
         "shapes" => emucore::lens::aperture::SHAPE_IDS
             .iter()
             .map(|s| {
@@ -190,12 +325,17 @@ fn sheet(a: &Args, cat: &Catalog) {
             .collect(),
         _ => die("--kind films|lenses|bodies|shapes"),
     };
-    let only: Option<Vec<String>> = a.get("only").map(|v| v.split(',').map(|s| s.to_string()).collect());
+    let only: Option<Vec<String>> = a
+        .get("only")
+        .map(|v| v.split(',').map(|s| s.to_string()).collect());
     let ids: Vec<String> = match kind {
         "films" => cat.films.values().map(|f| f.id.clone()).collect(),
         "lenses" => cat.lenses.values().map(|l| l.id.clone()).collect(),
         "bodies" => cat.bodies.values().map(|b| b.id.clone()).collect(),
-        _ => emucore::lens::aperture::SHAPE_IDS.iter().map(|s| s.to_string()).collect(),
+        _ => emucore::lens::aperture::SHAPE_IDS
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
     };
     let variants: Vec<(String, Recipe)> = variants
         .into_iter()
@@ -205,13 +345,25 @@ fn sheet(a: &Args, cat: &Catalog) {
         .collect();
     let t = Instant::now();
     use rayon::prelude::*;
-    let tiles: Vec<(String, ImageF32)> = variants.par_iter().map(|(n, r)| (n.clone(), render(&img, r, cat))).collect();
-    let cols = a.f("cols").map(|v| v as usize).unwrap_or(4).min(tiles.len()).max(1);
+    let tiles: Vec<(String, ImageF32)> = variants
+        .par_iter()
+        .map(|(n, r)| (n.clone(), render(&img, r, cat)))
+        .collect();
+    let cols = a
+        .f("cols")
+        .map(|v| v as usize)
+        .unwrap_or(4)
+        .min(tiles.len())
+        .max(1);
     let rows = tiles.len().div_ceil(cols);
     let pad = 12;
     let label_h = 28;
     let (tw, th) = (img.w, img.h);
-    let mut sheet = ImageF32::filled(cols * (tw + pad) + pad, rows * (th + pad + label_h) + pad, [0.043, 0.043, 0.047]);
+    let mut sheet = ImageF32::filled(
+        cols * (tw + pad) + pad,
+        rows * (th + pad + label_h) + pad,
+        [0.043, 0.043, 0.047],
+    );
     for (i, (name, t)) in tiles.iter().enumerate() {
         let ox = pad + (i % cols) * (tw + pad);
         let oy = pad + (i / cols) * (th + pad + label_h);
@@ -250,12 +402,21 @@ fn refs(a: &Args) {
             }
         }
     }
-    save(&io::display_from_linear(&img), dir.join("points.png").to_str().unwrap());
+    save(
+        &io::display_from_linear(&img),
+        dir.join("points.png").to_str().unwrap(),
+    );
     // Exposure wedge + color patches.
     let mut wedge = ImageF32::new(w, 400);
     let patches: [[f32; 3]; 8] = [
-        [0.45, 0.32, 0.25], [0.08, 0.30, 0.05], [0.25, 0.40, 0.80], [0.70, 0.12, 0.10],
-        [0.85, 0.70, 0.15], [0.10, 0.45, 0.45], [0.50, 0.20, 0.55], [0.60, 0.55, 0.50],
+        [0.45, 0.32, 0.25],
+        [0.08, 0.30, 0.05],
+        [0.25, 0.40, 0.80],
+        [0.70, 0.12, 0.10],
+        [0.85, 0.70, 0.15],
+        [0.10, 0.45, 0.45],
+        [0.50, 0.20, 0.55],
+        [0.60, 0.55, 0.50],
     ];
     for y in 0..400 {
         for x in 0..w {
@@ -269,7 +430,10 @@ fn refs(a: &Args) {
             wedge.set(x, y, c);
         }
     }
-    save(&io::display_from_linear(&wedge), dir.join("wedge.png").to_str().unwrap());
+    save(
+        &io::display_from_linear(&wedge),
+        dir.join("wedge.png").to_str().unwrap(),
+    );
 }
 
 fn main() {
@@ -281,30 +445,77 @@ fn main() {
             println!("{}", serde_json::to_string_pretty(&v).unwrap());
         }
         Some("apply") => {
-            let input = a.pos.get(1).unwrap_or_else(|| die("apply <in.jpg> -o out.jpg"));
+            let input = a
+                .pos
+                .get(1)
+                .unwrap_or_else(|| die("apply <in.jpg> -o out.jpg"));
             let out = a.get("o").unwrap_or("out.jpg");
             let img = load_input(input, a.f("max").map(|v| v as usize));
             let r = recipe_from_args(&a);
+            let near = depth_from_args(&a, &img);
+            let veg = veg_from_args(&a);
             let t = Instant::now();
-            let res = render(&img, &r, cat);
+            let resolved = resolve(&r, cat).unwrap_or_else(|e| die(e));
+            let res = pipeline::render_with_aux(
+                &img,
+                &resolved,
+                near.as_ref(),
+                veg.as_ref(),
+                &Hooks::default(),
+            )
+            .unwrap_or_else(|e| die(e));
             eprintln!("rendered {}x{} in {:.2?}", img.w, img.h, t.elapsed());
             eprintln!("recipe: {}", r.to_json());
             save(&res, out);
         }
         Some("sheet") => sheet(&a, cat),
+        Some("depth-input") => {
+            // network input tensor (raw LE f32) exactly as the app builds it
+            let input = a
+                .pos
+                .get(1)
+                .unwrap_or_else(|| die("depth-input <in.jpg> --size WxH [--nhwc 1] -o t.f32"));
+            let (w, h) = a
+                .get("size")
+                .and_then(|s| s.split_once('x'))
+                .and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)))
+                .unwrap_or_else(|| die("--size WxH"));
+            let layout = emucore::depth::ModelLayout {
+                w,
+                h,
+                nchw: a.get("nhwc").is_none(),
+            };
+            layout.validate().unwrap_or_else(|e| die(e));
+            let t = emucore::depth::model_input(&load_input(input, None), layout);
+            let bytes: Vec<u8> = t.iter().flat_map(|v| v.to_le_bytes()).collect();
+            let out = a.get("o").unwrap_or("input.f32");
+            std::fs::write(out, bytes).unwrap_or_else(|e| die(e));
+            eprintln!("wrote {out} ({w}x{h}, {} floats)", t.len());
+        }
         Some("lut") => {
             let r = recipe_from_args(&a);
             let res = resolve(&r, cat).unwrap_or_else(|e| die(e));
             let luts = emucore::lut::bake(&res, 33);
             let out = a.get("o").unwrap_or("film.cube");
-            std::fs::write(out, luts.develop.to_cube(r.film.as_deref().unwrap_or("digital"))).unwrap_or_else(|e| die(e));
-            eprintln!("wrote {out} (input: log2 shaper {}..{} EV around 0.18)", emucore::film::LOG_MIN, emucore::film::LOG_MAX);
+            std::fs::write(
+                out,
+                luts.develop.to_cube(r.film.as_deref().unwrap_or("digital")),
+            )
+            .unwrap_or_else(|e| die(e));
+            eprintln!(
+                "wrote {out} (input: log2 shaper {}..{} EV around 0.18)",
+                emucore::film::LOG_MIN,
+                emucore::film::LOG_MAX
+            );
         }
         Some("refs") => refs(&a),
         Some("preview") => {
             let r = recipe_from_args(&a);
             let res = resolve(&r, cat).unwrap_or_else(|e| die(e));
-            println!("{}", serde_json::to_string_pretty(&emucore::preview::params(&res)).unwrap());
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&emucore::preview::params(&res)).unwrap()
+            );
         }
         _ => {
             eprintln!("usage: emucam <catalog|apply|sheet|lut|refs|preview> ...");

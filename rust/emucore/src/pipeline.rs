@@ -5,10 +5,12 @@
 //!       → grain → emulsion effects → print → print effects
 
 use crate::color::linear_to_srgb;
+use crate::depth::{self, DepthField};
 use crate::effects::{self, Effect, FxCtx};
 use crate::film::{grain, halation, infrared, ToneXform};
-use crate::image::ImageF32;
+use crate::image::{ImageF32, MaskF32};
 use crate::lens::{self, bokeh, Geometry};
+use crate::preset::BlurField;
 use crate::preset::{FilmKind, Slot};
 use crate::recipe::{effect_seed, Resolved};
 use crate::Error;
@@ -21,7 +23,10 @@ pub struct Hooks<'a> {
 
 impl Default for Hooks<'_> {
     fn default() -> Self {
-        Hooks { progress: &|_| {}, cancelled: &|| false }
+        Hooks {
+            progress: &|_| {},
+            cancelled: &|| false,
+        }
     }
 }
 
@@ -44,8 +49,69 @@ fn check(h: &Hooks, p: f32) -> Result<(), Error> {
 
 /// Render a linear-light image into a display-encoded (sRGB, 0..1) image.
 pub fn render(src: &ImageF32, res: &Resolved, hooks: &Hooks) -> Result<ImageF32, Error> {
+    render_with_depth(src, res, None, hooks)
+}
+
+/// Whether a depth map would change this render: the lens blurs, responds to
+/// depth, and the user hasn't turned depth off. Apps skip depth inference
+/// otherwise.
+pub fn wants_depth(res: &Resolved) -> bool {
+    let o = &res.optics;
+    res.params.depth && o.rmax > 0.0 && o.field != BlurField::None && o.depth_scale > 0.0
+}
+
+/// Build the depth field for this render, or None when it isn't wanted or
+/// there is no map.
+fn depth_field(src: &ImageF32, res: &Resolved, near: Option<&MaskF32>) -> Option<DepthField> {
+    if !wants_depth(res) {
+        return None;
+    }
+    let near = near?;
+    let t0 = std::time::Instant::now();
+    let full = depth::upsample_guided(near, src);
+    let focus = depth::focus_nearness(near, res.focus_center);
+    if std::env::var_os("EMUCAM_PROF").is_some() {
+        eprintln!(
+            "depth: map {}x{} focus {:?} → nearness {focus:.3}, upsampled in {:.2?}",
+            near.w,
+            near.h,
+            res.focus_center,
+            t0.elapsed()
+        );
+    }
+    Some(DepthField { near: full, focus })
+}
+
+/// Like [`render`], with an optional nearness map (any resolution, photo
+/// orientation, 0 far … 1 near — see [`depth::nearness`]) for depth defocus.
+pub fn render_with_depth(
+    src: &ImageF32,
+    res: &Resolved,
+    near: Option<&MaskF32>,
+    hooks: &Hooks,
+) -> Result<ImageF32, Error> {
+    render_with_aux(src, res, near, None, hooks)
+}
+
+/// Whether a vegetation map would change this render: only infrared films
+/// use it. Apps skip segmentation inference otherwise.
+pub fn wants_veg(res: &Resolved) -> bool {
+    res.film.as_ref().is_some_and(|f| f.ir.is_some())
+}
+
+/// Like [`render_with_depth`], plus an optional vegetation-probability map
+/// (any resolution, photo orientation, 0..1 — see [`crate::seg::vegetation`])
+/// that gates the infrared film's foliage detection.
+pub fn render_with_aux(
+    src: &ImageF32,
+    res: &Resolved,
+    near: Option<&MaskF32>,
+    veg: Option<&MaskF32>,
+    hooks: &Hooks,
+) -> Result<ImageF32, Error> {
     let o = &res.optics;
     let g = Geometry::new(src.w, src.h, res.focus_center, res.focus_angle, o.field);
+    let dfield = depth_field(src, res, near);
     let film = res.film.as_ref();
 
     // Instantiate effects with their seeds, grouped by slot.
@@ -55,11 +121,27 @@ pub fn render(src: &ImageF32, res: &Resolved, hooks: &Hooks) -> Result<ImageF32,
         .enumerate()
         .filter_map(|(i, e)| effects::build(e).map(|b| (b, effect_seed(e, res.seed, i))))
         .collect();
-    let negative = film.map(|f| matches!(f.kind, FilmKind::ColorNegative | FilmKind::BwNegative | FilmKind::BwInfrared)).unwrap_or(false);
-    let mono = film.map(|f| matches!(f.kind, FilmKind::BwNegative | FilmKind::BwInfrared)).unwrap_or(false);
+    let negative = film
+        .map(|f| {
+            matches!(
+                f.kind,
+                FilmKind::ColorNegative | FilmKind::BwNegative | FilmKind::BwInfrared
+            )
+        })
+        .unwrap_or(false);
+    let mono = film
+        .map(|f| matches!(f.kind, FilmKind::BwNegative | FilmKind::BwInfrared))
+        .unwrap_or(false);
     let run_slot = |img: &mut ImageF32, slot: Slot| {
         for (e, seed) in fx.iter().filter(|(e, _)| e.slot() == slot) {
-            e.apply(img, &FxCtx { seed: *seed, negative, mono });
+            e.apply(
+                img,
+                &FxCtx {
+                    seed: *seed,
+                    negative,
+                    mono,
+                },
+            );
         }
     };
 
@@ -67,7 +149,7 @@ pub fn render(src: &ImageF32, res: &Resolved, hooks: &Hooks) -> Result<ImageF32,
     // ---- lens
     let mut img = lens::lateral_ca(src, o.ca_lateral, &g);
     check(hooks, 0.08)?;
-    img = bokeh::render(&img, o, &g);
+    img = bokeh::render_with_depth(&img, o, &g, dfield.as_ref());
     check(hooks, 0.45)?;
     lens::glow(&mut img, o.glow, o.glow_radius);
     lens::veil(&mut img, o.veil);
@@ -83,7 +165,7 @@ pub fn render(src: &ImageF32, res: &Resolved, hooks: &Hooks) -> Result<ImageF32,
     run_slot(&mut img, Slot::Exposure);
     if let Some(f) = film {
         if let Some(ir) = &f.ir {
-            infrared::apply(&mut img, ir);
+            infrared::apply(&mut img, ir, veg);
         }
         check(hooks, 0.62)?;
         halation::apply(&mut img, &f.halation, res.params.halation);
@@ -102,11 +184,57 @@ pub fn render(src: &ImageF32, res: &Resolved, hooks: &Hooks) -> Result<ImageF32,
             p.copy_from_slice(&y);
         });
     } else {
-        img.data.iter_mut().for_each(|v| *v = linear_to_srgb(*v).clamp(0.0, 1.0));
+        img.data
+            .iter_mut()
+            .for_each(|v| *v = linear_to_srgb(*v).clamp(0.0, 1.0));
         run_slot(&mut img, Slot::Emulsion);
     }
     run_slot(&mut img, Slot::Print);
     img.data.iter_mut().for_each(|v| *v = v.clamp(0.0, 1.0));
     check(hooks, 0.95)?;
     Ok(img)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::catalog::Catalog;
+    use crate::recipe::{resolve, Recipe};
+
+    fn wants(lens: &str, depth: bool) -> bool {
+        let mut r = Recipe {
+            lens: Some(lens.into()),
+            ..Default::default()
+        };
+        r.params.depth = depth;
+        wants_depth(&resolve(&r, Catalog::builtin()).unwrap())
+    }
+
+    #[test]
+    fn veg_is_wanted_only_by_infrared_films() {
+        let wants_film = |film: &str| {
+            let r = Recipe {
+                film: Some(film.into()),
+                ..Default::default()
+            };
+            wants_veg(&resolve(&r, Catalog::builtin()).unwrap())
+        };
+        assert!(wants_film("aero-ir"));
+        assert!(!wants_film("portrait-400"));
+        assert!(!wants_veg(
+            &resolve(&Recipe::default(), Catalog::builtin()).unwrap()
+        ));
+    }
+
+    #[test]
+    fn depth_is_wanted_only_by_lenses_that_focus() {
+        assert!(wants("helios-58", true));
+        assert!(
+            wants("sweet-50", true),
+            "optical sweet spot still adds focus blur"
+        );
+        assert!(!wants("helios-58", false), "user turned depth off");
+        assert!(!wants("standard", true), "no blur");
+        assert!(!wants("pinhole", true), "no focus plane");
+    }
 }

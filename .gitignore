@@ -8,3 +8,6 @@ local.properties
 /out/
 captures/
 .kotlin/
+
+# local install builds (~170 MB with the bundled ML models) — never commit
+/dist/

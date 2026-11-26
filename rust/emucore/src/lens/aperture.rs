@@ -8,7 +8,9 @@ use std::collections::HashMap;
 use std::f32::consts::PI;
 use std::sync::{Mutex, OnceLock};
 
-pub const SHAPE_IDS: &[&str] = &["star", "heart", "sparkle", "crescent", "flower", "diamond", "bird"];
+pub const SHAPE_IDS: &[&str] = &[
+    "star", "heart", "sparkle", "crescent", "flower", "diamond", "bird",
+];
 
 const EDGE: f32 = 0.08;
 
@@ -90,10 +92,21 @@ pub fn weight(ap: &Aperture, o: [f32; 2]) -> f32 {
         Aperture::Circle => 1.0 - smoothstep(1.0 - EDGE, 1.0, len(o)),
         Aperture::Polygon { blades, rotation } => {
             let n = (*blades).max(3) as f32;
+            // The edge radius rp lies in [cos(π/n), 1], so taps clearly
+            // inside or outside skip the atan2/cos (same result, exactly:
+            // the smoothstep clamps). Most gather taps take this path.
+            let l = len(o);
+            if l >= 1.0 + 1e-3 {
+                return 0.0;
+            }
+            let apothem = (PI / n).cos();
+            if l <= apothem - EDGE - 1e-3 {
+                return 1.0;
+            }
             let th = o[1].atan2(o[0]) - rotation.to_radians();
             let seg = 2.0 * PI / n;
-            let rp = (PI / n).cos() / ((th.rem_euclid(seg)) - PI / n).cos();
-            1.0 - smoothstep(rp - EDGE, rp, len(o))
+            let rp = apothem / ((th.rem_euclid(seg)) - PI / n).cos();
+            1.0 - smoothstep(rp - EDGE, rp, l)
         }
         Aperture::Slit { ratio, rotation } => {
             let (s, c) = rotation.to_radians().sin_cos();
@@ -121,7 +134,10 @@ pub fn area(ap: &Aperture) -> f32 {
     let mut acc = 0.0;
     for j in 0..n {
         for i in 0..n {
-            let o = [(i as f32 + 0.5) / n as f32 * 2.0 - 1.0, (j as f32 + 0.5) / n as f32 * 2.0 - 1.0];
+            let o = [
+                (i as f32 + 0.5) / n as f32 * 2.0 - 1.0,
+                (j as f32 + 0.5) / n as f32 * 2.0 - 1.0,
+            ];
             acc += weight(ap, o);
         }
     }
@@ -147,6 +163,27 @@ mod tests {
             let ap = Aperture::Shape { id: id.to_string() };
             let a = area(&ap);
             assert!(a > 0.3 && a < 3.3, "{id} area {a}");
+        }
+    }
+
+    #[test]
+    fn polygon_fast_paths_match_full_formula() {
+        for blades in [3u32, 5, 6, 9, 15] {
+            let ap = Aperture::Polygon {
+                blades,
+                rotation: 12.0,
+            };
+            let n = blades as f32;
+            for j in 0..=200 {
+                for i in 0..=200 {
+                    let o = [i as f32 / 80.0 - 1.25, j as f32 / 80.0 - 1.25];
+                    let th = o[1].atan2(o[0]) - 12f32.to_radians();
+                    let seg = 2.0 * PI / n;
+                    let rp = (PI / n).cos() / ((th.rem_euclid(seg)) - PI / n).cos();
+                    let full = 1.0 - smoothstep(rp - EDGE, rp, len(o));
+                    assert_eq!(weight(&ap, o), full, "blades {blades} at {o:?}");
+                }
+            }
         }
     }
 
