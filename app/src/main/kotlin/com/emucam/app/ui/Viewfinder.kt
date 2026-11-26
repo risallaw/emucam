@@ -120,16 +120,14 @@ fun ViewfinderScreen(s: UiState, vm: ViewfinderViewModel) {
                     modifier = Modifier.align(Alignment.TopCenter).padding(12.dp).background(Emu.Ink.copy(alpha = 0.7f)).padding(8.dp),
                 )
             }
-            s.message?.let {
-                LaunchedEffect(it) { delay(2500); vm.dismissMessage() }
-                Text(it, style = Emu.Body.copy(color = Emu.Bone), modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp).background(Emu.Ink.copy(alpha = 0.75f)).padding(8.dp))
-            }
-        }
-
-        // ---- panels
-        Box(Modifier.fillMaxWidth().weight(1f)) {
-            androidx.compose.animation.AnimatedVisibility(s.panel != Panel.NONE, enter = slideInVertically { it } + fadeIn(), exit = slideOutVertically { it } + fadeOut()) {
-                Column(Modifier.fillMaxWidth().background(Emu.Graphite).padding(vertical = 10.dp)) {
+            // ---- panels overlay the lower part of the viewfinder (glass over the image)
+            androidx.compose.animation.AnimatedVisibility(
+                s.panel != Panel.NONE,
+                modifier = Modifier.align(Alignment.BottomCenter),
+                enter = slideInVertically { it } + fadeIn(),
+                exit = slideOutVertically { it } + fadeOut(),
+            ) {
+                Column(Modifier.fillMaxWidth().background(Emu.Ink.copy(alpha = 0.82f)).padding(vertical = 10.dp)) {
                     when (s.panel) {
                         Panel.FILM -> FilmPanel(s, vm)
                         Panel.LENS -> LensPanel(s, vm)
@@ -139,7 +137,13 @@ fun ViewfinderScreen(s: UiState, vm: ViewfinderViewModel) {
                     }
                 }
             }
+            s.message?.let {
+                LaunchedEffect(it) { delay(2500); vm.dismissMessage() }
+                Text(it, style = Emu.Body.copy(color = Emu.Bone), modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp).background(Emu.Ink.copy(alpha = 0.75f)).padding(8.dp))
+            }
         }
+
+        Spacer(Modifier.weight(1f))
 
         // ---- control deck
         Row(

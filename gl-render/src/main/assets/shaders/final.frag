@@ -73,6 +73,7 @@ void main() {
     if (uVignette > 0.0) { float f = 1.0 / (1.0 + 1.6 * uVignette * r2); c *= f * f; }
     if (uFxVignette > 0.0) { float f = 1.0 / (1.0 + 2.5 * uFxVignette * r2 * r2 * 4.0); c *= f; }
 
+    vec3 scene = c;
     c *= uExposure;
 #ifdef FX_LEAK
     {
@@ -84,7 +85,8 @@ void main() {
 #ifdef FILM
 #ifdef IR
     {
-        float veg = vegIndex(wide);
+        // sharp mask (Rust blurs only ~0.5% of width) — the wide blur would bleed
+        float veg = vegIndex(scene);
         float sky = skyIndex(wide, 1.0 - vUv.y);
         float base = max(0.75 * c.r + 0.25 * c.g + 0.4 * (c.r - c.b), 0.0);
         float ir = mix(base, max(c.g * uIr.y, base), veg) * (1.0 - uIr.z * sky);

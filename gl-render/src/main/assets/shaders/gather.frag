@@ -17,11 +17,13 @@ void main() {
     float wsum = wc;
     int n = int(uTaps);
     float aTap = PI * reach * reach / float(n);
+    // per-pixel spiral rotation: turns structured sampling streaks into fine noise (hidden by grain)
+    float jitter = hash3(P, 7.0).x * 6.2831853;
     for (int i = 0; i < 64; i++) {
         if (i >= n) break;
         float fi = float(i);
         float rho = sqrt((fi + 0.5) / float(n));
-        float th = fi * 2.39996323;
+        float th = fi * 2.39996323 + jitter;
         vec2 d = reach * rho * vec2(cos(th), sin(th));
         vec2 S = P + d;
         vec3 s = texture(uSrc, uvFromImgPx(S)).rgb;
