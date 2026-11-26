@@ -1,0 +1,23 @@
+id = "creative-50"
+focal = 50
+fstop = 2.5
+[ui]
+name = "Shape 50"
+note = "Creative aperture discs: point lights become hearts, stars, sparkles…"
+category = "Creative"
+color = "#EC407A"
+[[ui.controls]]
+key = "blur"
+label = "Aperture"
+min = 0.0
+max = 2.0
+default = 1.0
+step = 0.05
+[optics]
+field = "sweet_spot"
+s0 = 0.14
+falloff = 0.45
+rmax = 0.025
+aperture = { kind = "shape", id = "heart" }
+highlight_gain = 10.0
+vignette = 0.2

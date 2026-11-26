@@ -1,0 +1,6 @@
+# 16 KB page alignment (Google Play requirement; NDK r27 doesn't default to it)
+[target.aarch64-linux-android]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
+
+[target.x86_64-linux-android]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]

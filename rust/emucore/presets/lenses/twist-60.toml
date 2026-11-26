@@ -1,0 +1,25 @@
+id = "twist-60"
+focal = 60
+fstop = 2.5
+[ui]
+name = "Twist 60"
+note = "Petzval-design swirl: sharp center, background spins around the subject"
+category = "Swirl"
+color = "#00897B"
+[[ui.controls]]
+key = "blur"
+label = "Aperture"
+min = 0.0
+max = 2.0
+default = 1.0
+step = 0.05
+[optics]
+field = "sweet_spot"
+s0 = 0.25
+falloff = 0.6
+rmax = 0.02
+swirl = 1.0
+cats_eye = 0.6
+bubble = 0.2
+ca_lateral = 0.002
+vignette = 0.3

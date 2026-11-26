@@ -1,0 +1,32 @@
+id = "burnside-35"
+focal = 35
+fstop = 2.8
+[ui]
+name = "Burn 35"
+note = "Wide Petzval with a vignette slider: cat's-eye bokeh and dark, glowing corners"
+category = "Swirl"
+color = "#5D4037"
+[[ui.controls]]
+key = "blur"
+label = "Aperture"
+min = 0.0
+max = 2.0
+default = 1.0
+step = 0.05
+[[ui.controls]]
+key = "vignette_slider"
+label = "Vignette"
+min = 0.0
+max = 1.2
+default = 0.8
+step = 0.05
+[optics]
+field = "sweet_spot"
+s0 = 0.3
+falloff = 0.7
+rmax = 0.015
+swirl = 0.7
+cats_eye = 0.8
+bubble = 0.2
+ca_lateral = 0.002
+vignette = 0.5

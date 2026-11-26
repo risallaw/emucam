@@ -1,0 +1,26 @@
+id = "biotar-75"
+focal = 75
+fstop = 1.5
+[ui]
+name = "Bio 75"
+note = "Fast vintage portrait lens: strong swirl and soft glow wide open"
+category = "Swirl"
+color = "#37474F"
+[[ui.controls]]
+key = "blur"
+label = "Aperture"
+min = 0.0
+max = 2.0
+default = 1.0
+step = 0.05
+[optics]
+field = "sweet_spot"
+s0 = 0.2
+falloff = 0.65
+rmax = 0.025
+swirl = 0.5
+cats_eye = 0.9
+bubble = 0.3
+ca_lateral = 0.003
+glow = 0.12
+vignette = 0.3

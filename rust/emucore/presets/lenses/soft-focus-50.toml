@@ -1,0 +1,21 @@
+id = "soft-focus-50"
+focal = 50
+fstop = 2.5
+[ui]
+name = "Soft Focus 50"
+note = "Sharp core wrapped in an all-over dreamy haze"
+category = "Glow"
+color = "#F8BBD0"
+[[ui.controls]]
+key = "blur"
+label = "Aperture"
+min = 0.0
+max = 2.0
+default = 1.0
+step = 0.05
+[optics]
+field = "uniform"
+rmax = 0.002
+glow = 0.5
+glow_radius = 0.01
+ca_lateral = 0.002

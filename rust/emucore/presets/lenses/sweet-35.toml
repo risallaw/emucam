@@ -1,0 +1,26 @@
+id = "sweet-35"
+focal = 35
+fstop = 2.5
+[ui]
+name = "Sweet-spot 35"
+note = "Round sweet spot of focus you can move anywhere; blur grows smoothly outward with a gentle swirl"
+category = "Selective focus"
+color = "#E53935"
+[[ui.controls]]
+key = "blur"
+label = "Aperture"
+min = 0.0
+max = 2.0
+default = 1.0
+step = 0.05
+[optics]
+field = "sweet_spot"
+s0 = 0.15
+falloff = 0.5
+rmax = 0.015
+swirl = 0.3
+cats_eye = 0.3
+ca_lateral = 0.003
+ca_long = 0.05
+glow = 0.05
+vignette = 0.25

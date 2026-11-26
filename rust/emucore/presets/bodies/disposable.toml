@@ -1,0 +1,16 @@
+id = "disposable"
+film = "superior-400"
+lens = "standard"
+[ui]
+name = "Disposable"
+note = "Party-ready single-use camera: date stamp, soft corners, a little flash-pop"
+category = "Camera"
+color = "#FFD54F"
+[[effects]]
+kind = "vignette"
+id = "vignette"
+strength = 0.35
+[[effects]]
+kind = "date_stamp"
+id = "date"
+strength = 1.0

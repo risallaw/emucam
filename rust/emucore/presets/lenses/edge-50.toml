@@ -1,0 +1,22 @@
+id = "edge-50"
+focal = 50
+fstop = 3.5
+[ui]
+name = "Tilt Slice 50"
+note = "A sharp slice of focus at any angle — miniature and tilt-shift looks"
+category = "Selective focus"
+color = "#8E24AA"
+[[ui.controls]]
+key = "blur"
+label = "Aperture"
+min = 0.0
+max = 2.0
+default = 1.0
+step = 0.05
+[optics]
+field = "slice"
+s0 = 0.06
+falloff = 0.4
+rmax = 0.02
+ca_lateral = 0.001
+vignette = 0.1

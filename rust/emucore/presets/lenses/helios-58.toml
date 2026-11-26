@@ -1,0 +1,27 @@
+id = "helios-58"
+focal = 58
+fstop = 2.0
+[ui]
+name = "Swirl 58"
+note = "Soviet double-gauss classic: cat's-eye bokeh that swirls around the frame"
+category = "Swirl"
+color = "#546E7A"
+[[ui.controls]]
+key = "blur"
+label = "Aperture"
+min = 0.0
+max = 2.0
+default = 1.0
+step = 0.05
+[optics]
+field = "sweet_spot"
+s0 = 0.2
+falloff = 0.7
+rmax = 0.025
+aperture = { kind = "polygon", blades = 8, rotation = 0.0 }
+swirl = 0.4
+cats_eye = 0.9
+bubble = 0.3
+ca_lateral = 0.003
+glow = 0.1
+vignette = 0.3

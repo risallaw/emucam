@@ -1,0 +1,14 @@
+[package]
+name = "emucore-ffi"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[lib]
+name = "emucore_ffi"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+emucore = { path = "../emucore" }
+jni = "0.21"
+serde_json.workspace = true

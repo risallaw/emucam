@@ -1,0 +1,19 @@
+id = "tri-400"
+kind = "bw_negative"
+iso = 400
+[ui]
+name = "Tri 400"
+note = "Classic photojournalism B&W: punchy mids, gritty grain, strong shoulder"
+category = "Black & white"
+color = "#F5C400"
+[tone]
+mono = [0.30, 0.59, 0.11]
+contrast = [1.15, 1.15, 1.15]
+black = [0.02, 0.02, 0.02]
+white = [0.98, 0.98, 0.98]
+[grain]
+amount = 0.45
+size_um = 18
+[halation]
+strength = 0.02
+tint = [1.0, 1.0, 1.0]

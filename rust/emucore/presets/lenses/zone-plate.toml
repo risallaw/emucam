@@ -1,0 +1,15 @@
+id = "zone-plate"
+focal = 50
+fstop = 32
+[ui]
+name = "Zone Plate"
+note = "Diffraction rings: a soft core with a huge glowing halo"
+category = "Obscura"
+color = "#78909C"
+[optics]
+field = "uniform"
+rmax = 0.003
+glow = 0.7
+glow_radius = 0.02
+ca_lateral = 0.005
+vignette = 0.6

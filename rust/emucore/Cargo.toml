@@ -1,0 +1,15 @@
+[package]
+name = "emucore"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+description = "Film and lens emulation core (pure Rust, no platform bindings)"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+rayon.workspace = true
+include_dir.workspace = true
+image.workspace = true
+half.workspace = true

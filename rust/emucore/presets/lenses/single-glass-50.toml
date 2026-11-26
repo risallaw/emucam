@@ -1,0 +1,27 @@
+id = "single-glass-50"
+focal = 50
+fstop = 2.0
+[ui]
+name = "Single Glass 50"
+note = "One uncoated element: tiny sweet spot, dreamy glow, strong color fringes"
+category = "Selective focus"
+color = "#A1887F"
+[[ui.controls]]
+key = "blur"
+label = "Aperture"
+min = 0.0
+max = 2.0
+default = 1.0
+step = 0.05
+[optics]
+field = "sweet_spot"
+s0 = 0.08
+falloff = 0.4
+rmax = 0.02
+swirl = 0.4
+cats_eye = 0.4
+ca_lateral = 0.008
+ca_long = 0.08
+glow = 0.35
+veil = 0.1
+vignette = 0.35

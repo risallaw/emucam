@@ -1,0 +1,24 @@
+id = "sol-45"
+focal = 45
+fstop = 3.5
+[ui]
+name = "Sol 45"
+note = "Tilting sweet spot with bokeh blades that streak highlights into lines"
+category = "Selective focus"
+color = "#FB8C00"
+[[ui.controls]]
+key = "blur"
+label = "Aperture"
+min = 0.0
+max = 2.0
+default = 1.0
+step = 0.05
+[optics]
+field = "sweet_spot"
+s0 = 0.2
+falloff = 0.5
+rmax = 0.015
+swirl = 0.2
+aperture = { kind = "slit", ratio = 0.3, rotation = 0.0 }
+ca_lateral = 0.002
+vignette = 0.2

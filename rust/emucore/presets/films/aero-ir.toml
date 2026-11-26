@@ -1,0 +1,23 @@
+id = "aero-ir"
+kind = "color_infrared"
+iso = 400
+[ui]
+name = "Aero IR"
+note = "False-color infrared (yellow filter): foliage turns red and magenta, skies deep blue"
+category = "Infrared"
+color = "#D81B60"
+[tone]
+contrast = [1.22, 1.2, 1.22]
+black = [0.01, 0.01, 0.015]
+crosstalk = [[1.0, -0.08, -0.02], [-0.05, 1.0, -0.05], [-0.02, -0.08, 1.0]]
+saturation = 1.2
+[ir]
+variant = "aerochrome"
+k_veg = 4.5
+k_sky = 0.5
+[grain]
+amount = 0.22
+size_um = 14
+chroma = 0.3
+[halation]
+strength = 0.05

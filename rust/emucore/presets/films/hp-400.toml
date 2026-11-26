@@ -1,0 +1,21 @@
+id = "hp-400"
+kind = "bw_negative"
+iso = 400
+[ui]
+name = "Hi-Pan 400"
+note = "Softer, flatter B&W with wide latitude and smooth grain"
+category = "Black & white"
+color = "#9E9E9E"
+[tone]
+mono = [0.27, 0.62, 0.11]
+contrast = [0.95, 0.95, 0.95]
+black = [0.03, 0.03, 0.03]
+white = [0.97, 0.97, 0.97]
+[print]
+fade = 0.02
+[grain]
+amount = 0.38
+size_um = 16
+[halation]
+strength = 0.02
+tint = [1.0, 1.0, 1.0]

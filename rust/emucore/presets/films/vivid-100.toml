@@ -1,0 +1,21 @@
+id = "vivid-100"
+kind = "color_negative"
+iso = 100
+[ui]
+name = "Vivid 100"
+note = "Finest grain, punchy reds and oranges, saturated cool skies"
+category = "Color negative"
+color = "#E2541A"
+[tone]
+contrast = [1.12, 1.08, 1.12]
+pivot = [-0.02, 0.0, 0.05]
+black = [0.02, 0.02, 0.025]
+white = [0.98, 0.98, 0.98]
+crosstalk = [[1.0, -0.10, -0.03], [-0.06, 1.0, -0.07], [-0.02, -0.10, 1.0]]
+saturation = 1.22
+[grain]
+amount = 0.10
+size_um = 9
+chroma = 0.2
+[halation]
+strength = 0.02

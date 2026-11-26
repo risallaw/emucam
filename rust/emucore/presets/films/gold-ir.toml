@@ -1,0 +1,22 @@
+id = "gold-ir"
+kind = "color_infrared"
+iso = 200
+[ui]
+name = "Gold IR"
+note = "Golden infrared: foliage glows yellow-gold against blue skies"
+category = "Infrared"
+color = "#FFB300"
+[tone]
+contrast = [1.12, 1.12, 1.12]
+black = [0.015, 0.015, 0.02]
+saturation = 1.15
+[ir]
+variant = "golden"
+k_veg = 4.2
+k_sky = 0.5
+[grain]
+amount = 0.2
+size_um = 14
+chroma = 0.25
+[halation]
+strength = 0.04

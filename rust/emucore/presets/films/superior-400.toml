@@ -1,0 +1,24 @@
+id = "superior-400"
+kind = "color_negative"
+iso = 400
+[ui]
+name = "Superior 400"
+note = "Everyday consumer stock: green-cyan shadows, magenta skin, visible grain"
+category = "Color negative"
+color = "#3FA34D"
+[tone]
+contrast = [1.0, 1.0, 0.98]
+pivot = [0.03, -0.04, 0.0]
+black = [0.025, 0.03, 0.03]
+white = [0.97, 0.97, 0.97]
+crosstalk = [[1.0, -0.06, -0.02], [-0.04, 1.0, -0.05], [-0.02, -0.06, 1.0]]
+saturation = 1.08
+[print]
+shadow_tint = [-0.010, 0.014, 0.010]
+highlight_tint = [0.012, -0.005, 0.0]
+[grain]
+amount = 0.3
+size_um = 17
+chroma = 0.35
+[halation]
+strength = 0.03

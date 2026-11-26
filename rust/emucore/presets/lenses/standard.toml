@@ -1,0 +1,10 @@
+id = "standard"
+focal = 50
+fstop = 2.0
+[ui]
+name = "Standard 50"
+note = "Clean modern glass — no lens character, just film"
+category = "Standard"
+color = "#BDBDBD"
+[optics]
+field = "none"

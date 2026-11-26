@@ -1,0 +1,33 @@
+id = "petzval-58"
+focal = 58
+fstop = 1.9
+[ui]
+name = "Petz 58"
+note = "Brass portrait lens: dial the bokeh control from subtle (1) to surreal swirl (7)"
+category = "Swirl"
+color = "#C9A227"
+[[ui.controls]]
+key = "blur"
+label = "Aperture"
+min = 0.0
+max = 2.0
+default = 1.0
+step = 0.05
+[[ui.controls]]
+key = "bokeh_control"
+label = "Bokeh control"
+min = 1.0
+max = 7.0
+default = 4.0
+step = 1.0
+[optics]
+field = "sweet_spot"
+s0 = 0.25
+falloff = 0.6
+rmax = 0.03
+swirl = 0.8
+cats_eye = 0.8
+bubble = 0.2
+ca_lateral = 0.003
+glow = 0.15
+vignette = 0.4

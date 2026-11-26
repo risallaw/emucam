@@ -1,0 +1,15 @@
+[package]
+name = "emucore-cli"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "emucam"
+path = "src/main.rs"
+
+[dependencies]
+emucore = { path = "../emucore" }
+image.workspace = true
+serde_json.workspace = true
+rayon.workspace = true

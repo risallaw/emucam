@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+members = ["emucore", "emucore-cli", "emucore-ffi"]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "Proprietary"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+rayon = "1.10"
+include_dir = "0.7"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+half = "2.4"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+
+[profile.android-dev]
+inherits = "release"
+lto = false
+codegen-units = 16
+opt-level = 2
+incremental = true

@@ -1,0 +1,24 @@
+id = "ir-mono"
+kind = "bw_infrared"
+iso = 400
+[ui]
+name = "IR Mono"
+note = "B&W infrared without anti-halation: snow-white foliage, black skies, glowing highlights"
+category = "Infrared"
+color = "#ECEFF1"
+[tone]
+contrast = [1.2, 1.2, 1.2]
+black = [0.02, 0.02, 0.02]
+white = [0.99, 0.99, 0.99]
+[ir]
+variant = "mono"
+k_veg = 6.0
+k_sky = 0.6
+[grain]
+amount = 0.45
+size_um = 20
+[halation]
+strength = 0.35
+threshold = 0.7
+radius = 1.5
+tint = [1.0, 1.0, 1.0]

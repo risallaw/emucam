@@ -1,0 +1,25 @@
+id = "aero-ir-orange"
+kind = "color_infrared"
+iso = 400
+[ui]
+name = "Aero IR · Orange"
+note = "False-color IR through an orange filter: pinker foliage, warmer cast, darker skies"
+category = "Infrared"
+color = "#F06292"
+[tone]
+contrast = [1.2, 1.18, 1.2]
+black = [0.01, 0.01, 0.015]
+crosstalk = [[1.0, -0.06, -0.02], [-0.04, 1.0, -0.05], [-0.02, -0.06, 1.0]]
+saturation = 1.15
+[print]
+highlight_tint = [0.012, 0.006, -0.006]
+[ir]
+variant = "aerochrome_orange"
+k_veg = 4.8
+k_sky = 0.6
+[grain]
+amount = 0.22
+size_um = 14
+chroma = 0.3
+[halation]
+strength = 0.05

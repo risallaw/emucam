@@ -1,0 +1,22 @@
+id = "chrome-64"
+kind = "slide"
+iso = 64
+[ui]
+name = "Chrome 64"
+note = "Dense blacks, rich warm reds and yellows, deep blue skies, olive greens"
+category = "Slide"
+color = "#C62828"
+[tone]
+contrast = [1.35, 1.30, 1.40]
+pivot = [-0.10, 0.05, 0.10]
+black = [0.0, 0.0, 0.0]
+white = [0.99, 0.98, 0.97]
+crosstalk = [[1.0, -0.12, -0.02], [-0.06, 1.0, -0.08], [-0.02, -0.12, 1.0]]
+saturation = 1.25
+[print]
+highlight_tint = [0.010, 0.0, -0.010]
+[grain]
+amount = 0.1
+size_um = 10
+[halation]
+strength = 0.012

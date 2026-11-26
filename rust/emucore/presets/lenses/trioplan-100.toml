@@ -1,0 +1,27 @@
+id = "trioplan-100"
+focal = 100
+fstop = 2.8
+[ui]
+name = "Bubble 100"
+note = "Triplet with over-corrected aberration: soap-bubble bokeh with bright rims"
+category = "Bubble"
+color = "#29B6F6"
+[[ui.controls]]
+key = "blur"
+label = "Aperture"
+min = 0.0
+max = 2.0
+default = 1.0
+step = 0.05
+[optics]
+field = "sweet_spot"
+s0 = 0.22
+falloff = 0.6
+rmax = 0.025
+aperture = { kind = "polygon", blades = 15, rotation = 0.0 }
+bubble = 0.85
+swirl = 0.1
+cats_eye = 0.5
+ca_lateral = 0.004
+glow = 0.25
+vignette = 0.25

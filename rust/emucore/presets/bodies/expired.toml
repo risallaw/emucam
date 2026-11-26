@@ -1,0 +1,22 @@
+id = "expired"
+film = "portrait-400"
+lens = "standard"
+[ui]
+name = "Expired Roll"
+note = "Film found in a drawer: color cast, edge fog, dust"
+category = "Camera"
+color = "#8D6E63"
+[[effects]]
+kind = "color_shift"
+id = "shift"
+strength = 1.0
+seed_mode = "per_shot"
+[[effects]]
+kind = "fog"
+id = "fog"
+strength = 0.6
+[[effects]]
+kind = "dust"
+id = "dust"
+strength = 1.0
+seed_mode = "per_shot"

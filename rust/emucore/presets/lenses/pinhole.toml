@@ -1,0 +1,13 @@
+id = "pinhole"
+focal = 50
+fstop = 161
+[ui]
+name = "Pinhole"
+note = "No glass at all: soft everywhere, infinite depth of field, heavy vignette"
+category = "Obscura"
+color = "#424242"
+[optics]
+field = "uniform"
+rmax = 0.004
+vignette = 0.8
+veil = 0.05

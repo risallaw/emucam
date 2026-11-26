@@ -1,0 +1,18 @@
+id = "toy-cam"
+film = "superior-400"
+lens = "toy-45"
+[ui]
+name = "Toy Cam"
+note = "Plastic medium-format box camera: leaks, vignette, square-ish dreamy frames"
+category = "Camera"
+color = "#2E7D32"
+[[effects]]
+kind = "vignette"
+id = "vignette"
+strength = 0.6
+[[effects]]
+kind = "light_leak"
+id = "leak"
+strength = 0.7
+[effects.params]
+edge = "right"
