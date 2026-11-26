@@ -380,7 +380,7 @@ impl Effect for Prism {
         let (w, h) = (img.w, img.h);
         // per-tap hue weights, normalised per channel so flat areas keep their colour
         let sp: [[f32; 3]; PRISM_TAPS] =
-            std::array::from_fn(|k| omni::spectrum((k as f32 + 0.5) / PRISM_TAPS as f32));
+            std::array::from_fn(|k| omni::light_spectrum((k as f32 + 0.5) / PRISM_TAPS as f32));
         let mut norm = [0.0f32; 3];
         for c in &sp {
             for k in 0..3 {
@@ -407,7 +407,7 @@ impl Effect for Prism {
                 let sv = (v - dyn_ * f).clamp(0.0, 1.0);
                 let g = soft.sample_uv(su, sv);
                 let y = luma(g);
-                let hl = smoothstep(0.6, 1.2, y) * y;
+                let hl = smoothstep(omni::FIRE_LO, omni::FIRE_HI, y) * y;
                 for k in 0..3 {
                     e[k] += c[k] * g[k];
                     fl[k] += c[k] * hl;

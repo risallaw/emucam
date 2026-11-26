@@ -156,6 +156,7 @@ vec3 omni(vec3 c, vec2 p, int k) {
     float dsp = 0.006 * hd;
     vec3 acc = vec3(0.0);
     vec3 fire = vec3(0.0);
+    vec3 fireNorm = vec3(0.0);
     for (int i = 0; i < 8; i++) {
         float s = (float(i) + 0.5) / 8.0 - 0.5;
         vec2 q2;
@@ -190,19 +191,25 @@ vec3 omni(vec3 c, vec2 p, int k) {
         } else if (mode == 4 || mode == 9) { q2 = vec2(qa, across + s * 0.12); disp = n; }
         else { q2 = vec2(qa + s * 0.12, across); disp = t; }
         vec2 q = a + (n * q2.x + t * q2.y) * hd;
-        vec3 mid = omniSrc(q, lod);
-        acc += vec3(omniSrc(q + disp * dsp, lod).r, mid.g, omniSrc(q - disp * dsp, lod).b);
-        float y = luma(mid);
-        fire += spectrumRgb((float(i) + 0.5) / 8.0) * (smoothstep(0.6, 1.0, y) * y);
+        acc += vec3(omniSrc(q + disp * dsp, lod).r, omniSrc(q, lod).g, omniSrc(q - disp * dsp, lod).b);
+        // rust FIRE_SPREAD 0.05, FIRE_LO 0.35, FIRE_HI 0.85, SPECTRUM_SPAN 0.75
+        float hue = (float(i) + 0.5) / 8.0;
+        float y = luma(omniSrc(q + disp * ((hue - 0.5) * 0.05 * hd), lod));
+        vec3 sp = spectrumRgb(hue * 0.75);
+        fire += sp * (smoothstep(0.35, 0.85, y) * y);
+        fireNorm += sp;
     }
     vec3 rc = acc / 8.0;
     float h = 0.5 + across / (2.0 * width);
+    // rust SPECTRAL_BASE 0.25: spectral wands colour bright light, hint on midtones
+    float sk = 0.25 + 0.75 * smoothstep(0.35, 0.85, luma(rc));
     vec3 tint = uOmniTint2[k].w > 0.5
-        ? 0.25 + 1.3 * spectrumRgb(h)
+        ? 1.0 + (0.25 + 1.3 * spectrumRgb(h) - 1.0) * sk
         : mix(uOmniTint[k].rgb, uOmniTint2[k].rgb, clamp(h, 0.0, 1.0));
+    fire /= fireNorm;
     float fm = (fire.r + fire.g + fire.b) / 3.0;
     float tex = mode == 10 ? 0.85 + 0.3 * omniDiamond(along, across) : 1.0;
-    rc = max(rc * tint * tex + uOmniFire[k] * 3.0 / 8.0 * (fire - fm), 0.0);
+    rc = max(rc * tint * tex + uOmniFire[k] * 1.5 * (fire - fm), 0.0);
     rc = rc * 1.08 + 0.12 * luma(rc) + 0.01;
     return mix(c, rc, m);
 }

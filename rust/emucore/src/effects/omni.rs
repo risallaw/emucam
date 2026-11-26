@@ -22,6 +22,18 @@ pub const TAPS: usize = 8;
 /// Softness of the refracted copy (Gaussian σ, half-diagonal units): the
 /// wand is far out of focus. The preview reads a mip level of matching size.
 pub const SOFT: f32 = 0.012;
+/// How far the spectrum of a bright light is spread (half-diagonal units).
+pub const FIRE_SPREAD: f32 = 0.05;
+/// Brightness (linear) where dispersion starts / is full. Phone exposure and
+/// the film's highlight roll-off put real lamps around 0.6–0.9, not above 1.
+pub const FIRE_LO: f32 = 0.35;
+pub const FIRE_HI: f32 = 0.85;
+/// Strength of the dispersed colour for `fire` = 1.
+pub const FIRE_GAIN: f32 = 1.5;
+/// Share of the hue wheel a spectrum covers (red → violet).
+pub const SPECTRUM_SPAN: f32 = 0.75;
+/// Share of a spectral wand's colour kept on midtones (rest needs bright light).
+pub const SPECTRAL_BASE: f32 = 0.25;
 
 /// Refraction modes (`final.frag` uses the same numbers).
 pub const MODE_RODS: u32 = 0;
@@ -284,11 +296,14 @@ impl Omni {
         self.width
     }
 
-    /// Colour multiplier at `across` (half-diagonal units from the anchor).
-    fn tint_at(&self, across: f32) -> [f32; 3] {
+    /// Colour multiplier at `across` for refracted light of luma `y`.
+    /// Spectral (coated) wands colour light, not the scene: a hint on
+    /// midtones, the full rainbow where the light is bright.
+    fn tint_at(&self, across: f32, y: f32) -> [f32; 3] {
         let h = 0.5 + across / (2.0 * self.width);
         if self.spectral {
-            spectrum(h).map(|v| 0.25 + 1.3 * v)
+            let k = SPECTRAL_BASE + (1.0 - SPECTRAL_BASE) * smoothstep(FIRE_LO, FIRE_HI, y);
+            spectrum(h).map(|v| 1.0 + (0.25 + 1.3 * v - 1.0) * k)
         } else {
             crate::color::mix3(self.tint, self.tint2, h.clamp(0.0, 1.0))
         }
@@ -344,6 +359,7 @@ impl Omni {
         };
         let mut acc = [0.0f32; 3];
         let mut fire = [0.0f32; 3];
+        let mut fire_norm = [0.0f32; 3];
         for i in 0..TAPS {
             // s in -0.5..0.5; per-wand tap position + dispersion axis (R one way, B the other)
             let s = (i as f32 + 0.5) / TAPS as f32 - 0.5;
@@ -407,15 +423,19 @@ impl Omni {
             };
             let dsp = 0.006 * hd;
             let rr = sample(q[0] + disp[0] * dsp, q[1] + disp[1] * dsp)[0];
-            let mid = sample(q[0], q[1]);
-            let gg = mid[1];
-            // bright light through the crystal splits by wavelength: each tap
-            // gets its own hue, so a light source smears into a rainbow
-            let y = 0.2126 * mid[0] + 0.7152 * mid[1] + 0.0722 * mid[2];
-            let hl = smoothstep(0.6, 1.0, y) * y;
-            let sp = spectrum((i as f32 + 0.5) / TAPS as f32);
+            let gg = sample(q[0], q[1])[1];
+            // bright light through the crystal splits by wavelength: each hue is
+            // bent a little further along the dispersion axis, so the edges of a
+            // light (small or large) fan into a rainbow; even areas cancel out
+            let hue = (i as f32 + 0.5) / TAPS as f32;
+            let fo = (hue - 0.5) * FIRE_SPREAD * hd;
+            let lit = sample(q[0] + disp[0] * fo, q[1] + disp[1] * fo);
+            let y = 0.2126 * lit[0] + 0.7152 * lit[1] + 0.0722 * lit[2];
+            let hl = smoothstep(FIRE_LO, FIRE_HI, y) * y;
+            let sp = light_spectrum(hue);
             for k in 0..3 {
                 fire[k] += sp[k] * hl;
+                fire_norm[k] += sp[k];
             }
             let bb = sample(q[0] - disp[0] * dsp, q[1] - disp[1] * dsp)[2];
             acc[0] += rr;
@@ -423,10 +443,14 @@ impl Omni {
             acc[2] += bb;
         }
         let mut c = acc.map(|v| v / TAPS as f32);
-        let tint = self.tint_at(across);
-        // only the colour of the fire: an evenly bright area stays neutral
+        let tint = self.tint_at(across, 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]);
+        // only the colour of the fire: per channel normalised so an evenly
+        // bright area (every hue lit) stays neutral
+        for k in 0..3 {
+            fire[k] /= fire_norm[k];
+        }
         let fm = (fire[0] + fire[1] + fire[2]) / 3.0;
-        let fk = self.fire * 3.0 / TAPS as f32;
+        let fk = self.fire * FIRE_GAIN;
         // diamond film: reflective texture sparkles brighter / darker
         let tex = if self.mode == MODE_DIAMOND {
             0.85 + 0.3 * diamond_tex(along, across)
@@ -440,6 +464,12 @@ impl Omni {
         let y = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
         c.map(|v| v * 1.08 + 0.12 * y + 0.01)
     }
+}
+
+/// Colours of dispersed light, 0 = red … 1 = violet (a real spectrum has no
+/// magenta, so the hue wheel stops before wrapping back to red).
+pub fn light_spectrum(t: f32) -> [f32; 3] {
+    spectrum(t * SPECTRUM_SPAN)
 }
 
 /// Smooth hue ramp 0..1 → rgb (rainbow wand tint).
@@ -646,5 +676,58 @@ mod tests {
         let win = Omni::from_spec(&spec("wand = \"window\""));
         assert!(win.weight([399.0, 150.0], 400.0, 300.0) < 0.05);
         assert!(win.weight([399.0, 60.0], 400.0, 300.0) > 0.2);
+    }
+
+    #[test]
+    fn a_large_ordinary_lamp_gets_rainbow_edges() {
+        // phone-exposed lamp: big and only ~0.75 linear, on a grey ceiling
+        let (w, h) = (400.0, 300.0);
+        let o = Omni::from_spec(&spec("wand = \"triangle\""));
+        let lamp = |x: f32, y: f32| {
+            let d = ((x - 340.0).powi(2) + (y - 150.0).powi(2)).sqrt();
+            if d < 45.0 {
+                [0.75f32; 3]
+            } else {
+                [0.3; 3]
+            }
+        };
+        let mut spread = 0.0f32;
+        for py in (110..190).step_by(3) {
+            for px in (340..399).step_by(3) {
+                let c = o.refract([px as f32, py as f32], w, h, lamp);
+                spread = spread.max(c[0].max(c[1]).max(c[2]) - c[0].min(c[1]).min(c[2]));
+            }
+        }
+        assert!(
+            spread > 0.45, // old per-tap hues without a spectral offset: ~0.27
+            "edges of a large lamp should fringe: {spread}"
+        );
+        // an evenly lit ceiling stays neutral
+        let c = o.refract([390.0, 150.0], w, h, |_, _| [0.75f32; 3]);
+        assert!((c[0] - c[2]).abs() < 1e-4, "{c:?}");
+    }
+
+    #[test]
+    fn rainbow_wand_colours_light_not_the_wall() {
+        let o = Omni::from_spec(&spec("wand = \"rainbow\""));
+        let spread = |v: f32| {
+            let c = o.refract([395.0, 120.0], 400.0, 300.0, |_, _| [v; 3]);
+            c[0].max(c[1]).max(c[2]) - c[0].min(c[1]).min(c[2])
+        };
+        let (wall, lamp) = (spread(0.3), spread(0.9));
+        // relative to brightness: the wall gets a hint, the light the full colour
+        assert!(wall / 0.3 < 0.5 * lamp / 0.9, "wall {wall} lamp {lamp}");
+        assert!(lamp > 0.3, "bright light gets a strong rainbow: {lamp}");
+    }
+
+    #[test]
+    fn dispersed_light_runs_red_to_violet_without_magenta() {
+        let first = light_spectrum(0.0);
+        assert!(first[0] > 0.9 && first[2] < 0.1, "starts red: {first:?}");
+        for i in 0..=20 {
+            let c = light_spectrum(i as f32 / 20.0);
+            // magenta = strong red and strong blue together
+            assert!(!(c[0] > 0.6 && c[2] > 0.6), "magenta at {i}: {c:?}");
+        }
     }
 }
