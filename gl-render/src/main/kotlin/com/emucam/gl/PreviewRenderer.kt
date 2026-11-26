@@ -198,6 +198,7 @@ internal class PreviewRenderer(assets: AssetManager) {
             bindTex(0, GLES11Ext.GL_TEXTURE_EXTERNAL_OES, oesTex); setInt("uCamera", 0)
             bindTex(1, GLES30.GL_TEXTURE_2D, lens.texture); setInt("uLens", 1)
             bindTex(2, GLES30.GL_TEXTURE_2D, blurA.texture); setInt("uBlur", 2)
+            if ("FX_OMNI" in defs) { bindTex(LIN_UNIT, GLES30.GL_TEXTURE_2D, lin.texture); setInt("uLin", LIN_UNIT) }
             bindTex(3, GLES30.GL_TEXTURE_3D, lutTex[0]); setInt("uLutDevelop", 3)
             bindTex(4, GLES30.GL_TEXTURE_3D, lutTex[1]); setInt("uLutPrint", 4)
             // always bound so the sampler never aliases unit 0 (OES) even when unused
@@ -274,5 +275,7 @@ internal class PreviewRenderer(assets: AssetManager) {
         private const val DEPTH_UNIT = 5
         /** Units 0–4: camera/lens/blur/LUTs in the final pass, 5: depth (all passes). */
         private const val VEG_UNIT = 6
+        /** Mipmapped linear frame for the OMNI wand (final pass, FX_OMNI only). */
+        private const val LIN_UNIT = 7
     }
 }

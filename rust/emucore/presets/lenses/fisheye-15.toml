@@ -1,0 +1,21 @@
+id = "fisheye-15"
+focal = 15
+fstop = 2.8
+[ui]
+name = "15 Fisheye · f/2.8"
+note = "Full-frame fisheye: straight lines bow outward, centre bulges, edge to edge. Best on the ultra-wide camera"
+category = "Fisheye"
+color = "#26A69A"
+[[ui.controls]]
+key = "fisheye_angle"
+label = "Curve"
+min = 30.0
+max = 85.0
+default = 60.0
+step = 1.0
+[optics]
+field = "none"
+projection = "fisheye"
+fisheye_angle = 60.0
+ca_lateral = 0.006
+vignette = 0.15

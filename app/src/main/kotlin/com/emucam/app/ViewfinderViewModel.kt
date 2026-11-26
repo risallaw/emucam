@@ -14,7 +14,13 @@ import com.emucam.develop.DevelopProgress
 import com.emucam.develop.OutputFormat
 import com.emucam.develop.Shot
 import com.emucam.gl.LiveParams
+import com.emucam.model.Grid
+import com.emucam.model.Omni
+import com.emucam.model.PLACEABLE_EFFECTS
+import com.emucam.model.withEffectPosition
 import com.emucam.model.forCaptureRotation
+import com.emucam.model.withOmni
+import com.emucam.model.updateOmni
 import com.emucam.model.redevelopWith
 import com.emucam.model.Catalog
 import com.emucam.model.Recipe
@@ -46,6 +52,9 @@ data class UiState(
     val catalog: Catalog,
     val recipe: Recipe,
     val panel: Panel = Panel.NONE,
+    /** Composition guide over the viewfinder, and its orientation (0..3). */
+    val grid: Grid = Grid.OFF,
+    val gridOrient: Int = 0,
     val pickerTab: PickerTab = PickerTab.FILM,
     val camera: CameraState = CameraState(),
     val developing: DevelopProgress? = null,
@@ -84,7 +93,12 @@ class ViewfinderViewModel(private val app: EmucamApp) : ViewModel() {
 
     private val recipe = MutableStateFlow(loadRecipe())
     private val ui = MutableStateFlow(
-        UiState(engine.catalog, recipe.value, outputFormat = OutputFormat.fromName(prefs.getString(KEY_FORMAT, null))),
+        UiState(
+            engine.catalog, recipe.value,
+            outputFormat = OutputFormat.fromName(prefs.getString(KEY_FORMAT, null)),
+            grid = Grid.fromName(prefs.getString(KEY_GRID, null)),
+            gridOrient = prefs.getInt(KEY_GRID_ORIENT, 0),
+        ),
     )
 
     val state: StateFlow<UiState> = combine(ui, recipe, camera.state, app.queue.active, app.queue.shots) { u, r, c, d, s ->
@@ -110,13 +124,25 @@ class ViewfinderViewModel(private val app: EmucamApp) : ViewModel() {
         viewModelScope.launch {
             recipe.debounce(500).collect { prefs.edit { putString(KEY_RECIPE, it.toJson()) } }
         }
+        // A new lens frames like its focal length: CameraX picks the physical
+        // camera (ultra-wide / main / tele) for that zoom. The zoom chips
+        // override it until the lens changes again.
+        viewModelScope.launch {
+            // keyed on the lens id, not the focal: two 35 mm lenses are still a lens change
+            recipe.map { engine.lensId(it) }.distinctUntilChanged().collect { id ->
+                val f = engine.catalog.lens(id)?.focal
+                if (f != null && f > 0) camera.matchFocal(f)
+            }
+        }
     }
 
     private fun loadRecipe(): Recipe =
-        prefs.getString(KEY_RECIPE, null)?.let { runCatching { Recipe.fromJson(it) }.getOrNull() }
-            ?: Recipe(film = "portrait-400", lens = "standard")
+        (prefs.getString(KEY_RECIPE, null)?.let { runCatching { Recipe.fromJson(it) }.getOrNull() }
+            ?: Recipe(film = "portrait-400", lens = "standard")).let { it.withSeedIfUnset() }
 
     fun bindCamera(owner: LifecycleOwner, view: PreviewView) = camera.bind(owner, view)
+
+    fun setZoom(ratio: Float) = camera.setZoom(ratio)
 
     // ------------------------------------------------------------ selection
 
@@ -129,6 +155,20 @@ class ViewfinderViewModel(private val app: EmucamApp) : ViewModel() {
     fun setPanel(p: Panel) = ui.update { it.copy(panel = if (it.panel == p) Panel.NONE else p) }
     fun setPickerTab(t: PickerTab) = ui.update { it.copy(pickerTab = t) }
     fun showGallery(show: Boolean) = ui.update { it.copy(showGallery = show) }
+    /** Next composition guide (off → thirds → … → off); names it briefly. */
+    fun cycleGrid() {
+        val g = ui.value.grid.next()
+        ui.update { it.copy(grid = g, message = g.label) }
+        prefs.edit { putString(KEY_GRID, g.name) }
+    }
+
+    /** Turn the spiral / triangle so its focus lands on another corner. */
+    fun rotateGrid() {
+        val o = (ui.value.gridOrient + 1) % 4
+        ui.update { it.copy(gridOrient = o) }
+        prefs.edit { putInt(KEY_GRID_ORIENT, o) }
+    }
+
     fun dismissMessage() = ui.update { it.copy(message = null) }
 
     fun setOutputFormat(f: OutputFormat) {
@@ -165,6 +205,14 @@ class ViewfinderViewModel(private val app: EmucamApp) : ViewModel() {
         camera.focusAt(c[0], c[1])
         camera.processor.setLive(LiveParams())
     }
+    /** Focus point back to the centre at default size and angle; camera back to continuous AF. */
+    fun resetFocus() {
+        recipe.update { it.copy(params = it.params.copy(focusCenter = null, focusSize = 1f, focusAngle = 0f)) }
+        camera.processor.setLive(LiveParams())
+        camera.resetFocus()
+        ui.update { it.copy(message = "Focus reset") }
+    }
+
     fun tapFocus(nx: Float, ny: Float) {
         moveFocus(nx, ny)
         focusGestureEnd()
@@ -182,8 +230,18 @@ class ViewfinderViewModel(private val app: EmucamApp) : ViewModel() {
         else r.copy(effects = r.effects + buildJsonObject {
             put("kind", kind); put("id", id); put("strength", 1.0)
             if (kind == "date_stamp") put("params", buildJsonObject { put("text", dateText()) })
+            PLACEABLE_EFFECTS[kind]?.let { deg -> put("params", buildJsonObject { put("position", deg) }) }
         })
     }
+
+    /** Move a placed user effect (light leak, fog, prism) around the frame. */
+    fun placeEffect(kind: String, deg: Float) = recipe.update { it.withEffectPosition("user.$kind", deg) }
+
+    /** Set, change or (null) remove the OMNI filter. */
+    fun setOmni(o: Omni?) = recipe.update { it.withOmni(o) }
+
+    /** Change one OMNI setting on the current filter (safe from stale UI callbacks). */
+    fun updateOmni(f: (Omni) -> Omni) = recipe.update { it.updateOmni(f) }
 
     fun userEffectOn(kind: String) = recipe.value.effects.any { (it["id"] as? JsonPrimitive)?.content == "user.$kind" }
 
@@ -197,11 +255,8 @@ class ViewfinderViewModel(private val app: EmucamApp) : ViewModel() {
     fun shutter() {
         viewModelScope.launch {
             val (shot, file) = app.store.newShot(ui.value.outputFormat)
-            val base = recipe.value
-            val r = base.copy(
-                seed = Random.nextLong(0, 1L shl 32),
-                params = base.params.forCaptureRotation(camera.deviceRotation),
-            )
+            val (r, next) = nextShot(recipe.value, camera.deviceRotation)
+            recipe.value = next
             app.store.saveRecipe(shot.id, r)
             ui.update { it.copy(flash = true) }
             try {
@@ -275,6 +330,8 @@ class ViewfinderViewModel(private val app: EmucamApp) : ViewModel() {
         private const val TAG = "Viewfinder"
         private const val KEY_RECIPE = "recipe"
         private const val KEY_FORMAT = "output_format"
+        private const val KEY_GRID = "grid"
+        private const val KEY_GRID_ORIENT = "grid_orient"
 
         fun factory(app: EmucamApp) = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -282,3 +339,12 @@ class ViewfinderViewModel(private val app: EmucamApp) : ViewModel() {
         }
     }
 }
+
+private fun rollSeed(): Long = Random.nextLong(0, 1L shl 32)
+
+/** The viewfinder recipe always carries the seed of the next shot, so the preview shows what that shot will develop with. */
+internal fun Recipe.withSeedIfUnset(roll: () -> Long = ::rollSeed): Recipe = if (seed == 0L) copy(seed = roll()) else this
+
+/** (recipe to save for the shot taken now, live recipe for the following shot). */
+internal fun nextShot(live: Recipe, rotation: Int, roll: () -> Long = ::rollSeed): Pair<Recipe, Recipe> =
+    live.forCaptureRotation(rotation) to live.copy(seed = roll())

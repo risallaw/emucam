@@ -78,4 +78,79 @@ class RecipeTest {
         assertEquals(null, n.lens)
         assertEquals(emptyList<String>(), n.disabledEffects)
     }
+
+    @Test
+    fun omniRoundTripsThroughRecipeJson() {
+        val o = Omni(wand = "swirl", position = 200f, reach = 0.6f, strength = 0.8f)
+        val r = Recipe(lens = "standard").withOmni(o)
+        assertEquals(o, Recipe.fromJson(r.toJson()).omni())
+        assertTrue(r.toJson(), r.toJson().contains("\"kind\":\"omni\""))
+        assertEquals(null, r.withOmni(null).omni())
+        assertEquals(1, r.withOmni(o.copy(wand = "facet")).effects.size)
+    }
+
+    @Test
+    fun omniPositionFollowsDeviceRotation() {
+        val r = Recipe().withOmni(Omni(position = 10f))
+        assertEquals(10f, r.forCaptureRotation(0).omni()!!.position)
+        assertEquals(280f, r.forCaptureRotation(1).omni()!!.position)
+        assertEquals(190f, r.forCaptureRotation(2).omni()!!.position)
+        assertEquals(100f, r.forCaptureRotation(3).omni()!!.position)
+        assertEquals(null, Recipe().forCaptureRotation(1).omni())
+    }
+
+    @Test
+    fun placedEffectsFollowDeviceRotationToo() {
+        val leak = kotlinx.serialization.json.buildJsonObject {
+            put("kind", kotlinx.serialization.json.JsonPrimitive("light_leak"))
+            put("id", kotlinx.serialization.json.JsonPrimitive("user.light_leak"))
+        }
+        val r = Recipe(effects = listOf(leak)).withEffectPosition("user.light_leak", 370f)
+        assertEquals(10f, r.effectPosition("user.light_leak"))
+        assertEquals(280f, r.forCaptureRotation(1).effectPosition("user.light_leak"))
+        assertEquals(null, r.withEffectPosition("user.fog", 5f).effectPosition("user.fog"))
+        // unplaced effects are left alone
+        assertEquals(leak, Recipe(effects = listOf(leak)).forCaptureRotation(1).effects[0])
+    }
+
+    /** A wheel callback built when the filter was "rods at 0°" must not revert a later wand / position change. */
+    @Test
+    fun updateOmniChangesOneSettingOfTheCurrentFilter() {
+        val r = Recipe().withOmni(Omni(wand = "swirl", position = 180f, reach = 0.45f, strength = 0.7f))
+        val u = r.updateOmni { it.copy(reach = 0.8f) }
+        assertEquals(Omni(wand = "swirl", position = 180f, reach = 0.8f, strength = 0.7f), u.omni())
+        assertEquals(1, u.effects.size)
+        // off stays off
+        assertEquals(Recipe(), Recipe().updateOmni { it.copy(reach = 0.8f) })
+    }
+
+    @Test
+    fun captureRotationIsRecordedAndUsedWhenRedeveloping() {
+        val look = Recipe(lens = "standard").withOmni(Omni(position = 0f))
+        assertEquals(0, Recipe.fromJson("""{"lens":"standard"}""").captureRotation)
+        val shot = look.forCaptureRotation(1)
+        assertEquals(1, shot.captureRotation)
+        assertTrue(shot.toJson(), shot.toJson().contains("\"capture_rotation\":1"))
+        assertEquals(1, look.forCaptureRotation(5).captureRotation)
+        // re-developing that landscape shot with the (portrait) viewfinder look
+        val again = shot.redevelopWith(look.withOmni(Omni(position = 10f)))
+        assertEquals(280f, again.omni()!!.position)
+        assertEquals(1, again.captureRotation)
+        assertEquals(shot.params.focusCenter, again.params.focusCenter)
+        // an upright shot keeps the look as composed
+        assertEquals(10f, look.forCaptureRotation(0).redevelopWith(look.withOmni(Omni(position = 10f))).omni()!!.position)
+    }
+
+    /** Contact sheet "other film" builds the look from the shot's own (already turned) recipe. */
+    @Test
+    fun redevelopWithTheShotsOwnLookDoesNotTurnPlacedEffectsTwice() {
+        val shot = Recipe(lens = "standard").withOmni(Omni(position = 10f)).forCaptureRotation(1)
+        assertEquals(280f, shot.omni()!!.position)
+        val again = shot.redevelopWith(shot.withStock(null, "portrait-400", "standard", "standard"))
+        assertEquals(280f, again.omni()!!.position)
+        assertEquals(1, again.captureRotation)
+        // a look from another landscape shot (turned the other way) lands in this shot's frame
+        val other = Recipe().withOmni(Omni(position = 10f)).forCaptureRotation(3)
+        assertEquals(280f, shot.redevelopWith(other).omni()!!.position)
+    }
 }

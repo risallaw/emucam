@@ -4,6 +4,7 @@
 
 pub mod aperture;
 pub mod bokeh;
+pub mod projection;
 
 use crate::blur;
 use crate::color::{luma, smoothstep};

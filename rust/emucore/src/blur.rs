@@ -73,20 +73,50 @@ fn blur_buf(data: &mut [f32], w: usize, h: usize, ch: usize, sigma: f32) {
 /// Gaussian blur at full resolution. Large sigmas are computed on a downscaled
 /// copy and upsampled (visually identical for smooth results, much faster).
 pub fn gaussian(img: &ImageF32, sigma: f32) -> ImageF32 {
-    let factor = if sigma > 8.0 {
-        ((sigma / 4.0) as usize).max(1)
+    let b = Blurred::new(img, sigma);
+    if b.img.w == img.w && b.img.h == img.h {
+        b.img
     } else {
-        1
-    };
-    if factor > 1 {
+        b.img.resize(img.w, img.h)
+    }
+}
+
+/// A Gaussian blur kept at the reduced resolution it was computed at, read
+/// in full-resolution pixel coordinates. Same values as [`gaussian`] at pixel
+/// centres, without materialising the full-size copy (≈144 MB at 12 MP) when
+/// the caller only samples it.
+pub struct Blurred {
+    img: ImageF32,
+    sx: f32,
+    sy: f32,
+}
+
+impl Blurred {
+    pub fn new(img: &ImageF32, sigma: f32) -> Self {
+        let factor = if sigma > 8.0 {
+            ((sigma / 4.0) as usize).max(1)
+        } else {
+            1
+        };
         let mut small = img.downsample(factor);
         let (w, h) = (small.w, small.h);
         blur_buf(&mut small.data, w, h, 3, sigma / factor as f32);
-        small.resize(img.w, img.h)
-    } else {
-        let mut out = img.clone();
-        blur_buf(&mut out.data, img.w, img.h, 3, sigma);
-        out
+        Blurred {
+            sx: w as f32 / img.w as f32,
+            sy: h as f32 / img.h as f32,
+            img: small,
+        }
+    }
+
+    /// Bilinear sample at full-resolution pixel coordinates.
+    #[inline]
+    pub fn sample(&self, fx: f32, fy: f32) -> [f32; 3] {
+        self.img.sample(fx * self.sx, fy * self.sy)
+    }
+
+    #[inline]
+    pub fn sample_uv(&self, u: f32, v: f32) -> [f32; 3] {
+        self.img.sample_uv(u, v)
     }
 }
 
@@ -162,5 +192,40 @@ mod tests {
         let b = gaussian(&img, 3.0);
         let sum: f32 = b.data.iter().step_by(3).sum();
         assert!((sum - 100.0).abs() < 0.5, "sum {sum}");
+    }
+}
+
+#[cfg(test)]
+mod blurred_tests {
+    use super::*;
+
+    #[test]
+    fn blurred_matches_gaussian_at_pixel_centres_without_the_full_copy() {
+        let mut img = ImageF32::new(97, 61);
+        img.par_map_pixels(|x, y, p| {
+            p.copy_from_slice(&[
+                ((x * 7 + y * 3) % 11) as f32 / 10.0,
+                (x % 5) as f32 / 4.0,
+                (y % 3) as f32 / 2.0,
+            ])
+        });
+        for sigma in [3.0, 20.0] {
+            let full = gaussian(&img, sigma);
+            let b = Blurred::new(&img, sigma);
+            for (x, y) in [(0, 0), (13, 40), (96, 60), (50, 30)] {
+                let a = full.get(x, y);
+                let c = b.sample(x as f32 + 0.5, y as f32 + 0.5);
+                for k in 0..3 {
+                    assert!(
+                        (a[k] - c[k]).abs() < 1e-5,
+                        "σ {sigma} ({x},{y}): {a:?} vs {c:?}"
+                    );
+                }
+            }
+        }
+        assert!(
+            Blurred::new(&img, 20.0).img.data.len() * 4 < img.data.len(),
+            "kept small"
+        );
     }
 }

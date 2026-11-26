@@ -54,12 +54,21 @@ import com.emucam.app.USER_EFFECTS
 import com.emucam.app.UiState
 import com.emucam.app.ViewfinderViewModel
 import com.emucam.develop.ShotState
+import com.emucam.model.Grid
+import com.emucam.model.OMNI_WANDS
+import com.emucam.model.PLACEABLE_EFFECTS
+import com.emucam.model.effectPosition
+import com.emucam.model.gridSegments
+import com.emucam.model.Omni
+import com.emucam.model.omni
 import com.emucam.ds.Chip
 import com.emucam.ds.DetentWheel
+import com.emucam.ds.PositionDial
 import com.emucam.ds.Emu
 import com.emucam.ds.FilmCard
 import com.emucam.ds.FocusShape
 import com.emucam.ds.GlyphButton
+import com.emucam.ds.GuideOverlay
 import com.emucam.ds.ShutterButton
 import com.emucam.ds.SweetSpotReticle
 import com.emucam.ds.XYPad
@@ -110,6 +119,7 @@ fun ViewfinderScreen(s: UiState, vm: ViewfinderViewModel) {
                 onResize = { vm.scaleFocus(it) },
                 onRotate = { vm.rotateFocus(it) },
                 onTap = { vm.tapFocus(it.x, it.y) },
+                onReset = { vm.resetFocus() },
                 onGestureEnd = { vm.focusGestureEnd() },
             )
             if (s.flash) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)))
@@ -119,6 +129,16 @@ fun ViewfinderScreen(s: UiState, vm: ViewfinderViewModel) {
                     style = Emu.Body.copy(color = Emu.Amber),
                     modifier = Modifier.align(Alignment.TopCenter).padding(12.dp).background(Emu.Ink.copy(alpha = 0.7f)).padding(8.dp),
                 )
+            }
+            if (s.grid != Grid.OFF) {
+                val segs = remember(s.grid, s.gridOrient) { gridSegments(s.grid, 3f / 4f, s.gridOrient) }
+                GuideOverlay(segs, Modifier.fillMaxSize())
+                if (s.grid.orientable) {
+                    GlyphButton("↻", { vm.rotateGrid() }, Modifier.align(Alignment.TopEnd).padding(10.dp))
+                }
+            }
+            if (s.panel == Panel.NONE && s.camera.maxZoom > s.camera.minZoom) {
+                ZoomChips(s.camera.zoom, s.camera.minZoom, s.camera.maxZoom, vm::setZoom, Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp))
             }
             // ---- panels overlay the lower part of the viewfinder (glass over the image)
             androidx.compose.animation.AnimatedVisibility(
@@ -165,6 +185,7 @@ fun ViewfinderScreen(s: UiState, vm: ViewfinderViewModel) {
             Spacer(Modifier.weight(1f))
             GlyphButton("±", { vm.setPanel(Panel.ADJUST) }, active = s.panel == Panel.ADJUST)
             GlyphButton("FX", { vm.setPanel(Panel.EFFECTS) }, active = s.panel == Panel.EFFECTS)
+            GlyphButton("#", { vm.cycleGrid() }, active = s.grid != Grid.OFF)
             GlyphButton("⟲", { vm.camera.switchCamera() })
         }
     }
@@ -345,6 +366,76 @@ private fun EffectsPanel(s: UiState, vm: ViewfinderViewModel) {
             Chip(label, on, { vm.toggleUserEffect(kind) }, accent = Emu.Signal)
         }
     }
+    // placed effects: one dial each, to move them around the frame
+    val placed = USER_EFFECTS.mapNotNull { (kind, label) ->
+        s.recipe.effectPosition("user.$kind")?.takeIf { kind in PLACEABLE_EFFECTS }?.let { Triple(kind, label, it) }
+    }
+    if (placed.isNotEmpty()) {
+        Spacer(Modifier.height(10.dp))
+        Text("PLACE", style = Emu.Label, modifier = Modifier.padding(horizontal = 14.dp))
+        Spacer(Modifier.height(6.dp))
+        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            placed.forEach { (kind, label, deg) ->
+                PositionDial(deg, { vm.placeEffect(kind, it) }, label = label.uppercase(), dialSize = 60.dp)
+            }
+        }
+    }
+    Spacer(Modifier.height(10.dp))
+    OmniSection(s, vm)
     Spacer(Modifier.height(6.dp))
     Text("Some effects (dust, scratches, flare, prism…) appear when the photo develops.", style = Emu.Body, modifier = Modifier.padding(horizontal = 14.dp))
+}
+
+/** OMNI-style filter: a crystal / wand in front of any lens, placed around the frame. */
+@Composable
+private fun OmniSection(s: UiState, vm: ViewfinderViewModel) {
+    val o = s.recipe.omni()
+    Text("OMNI FILTER", style = Emu.Label, modifier = Modifier.padding(horizontal = 14.dp))
+    Spacer(Modifier.height(6.dp))
+    Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Chip("Off", o == null, { vm.setOmni(null) }, accent = Emu.Signal)
+        OMNI_WANDS.forEach { (id, label) ->
+            Chip(label, o?.wand == id, { vm.setOmni((o ?: Omni()).copy(wand = id)) }, accent = Emu.Signal)
+        }
+    }
+    if (o == null) return
+    Spacer(Modifier.height(8.dp))
+    Row(Modifier.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        PositionDial(o.position, { vm.setOmni(o.copy(position = it)) }, label = "PLACE")
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            // DetentWheel keeps its first onChange while shown: update the live filter, not `o`
+            DetentWheel("Reach", o.reach, 0.15f, 1f, 0.05f, 0.45f, { "%.0f%%".format(it * 100) }, { v -> vm.updateOmni { it.copy(reach = v) } })
+            DetentWheel("Strength", o.strength, 0f, 1.5f, 0.05f, 1f, { "%.0f%%".format(it * 100) }, { v -> vm.updateOmni { it.copy(strength = v) } })
+        }
+    }
+}
+
+/** Zoom stops the phone can reach: ultra-wide (when offered), 1×, then tele steps. */
+internal fun zoomStops(min: Float, max: Float): List<Float> =
+    (listOfNotNull(min.takeIf { it < 0.95f }) + listOf(1f, 2f, 3f, 5f, 10f)).filter { it in min..max + 0.01f }
+
+@Composable
+private fun ZoomChips(zoom: Float, min: Float, max: Float, onZoom: (Float) -> Unit, modifier: Modifier = Modifier) {
+    val stops = zoomStops(min, max)
+    // the stop the current zoom belongs to (nearest in log space) shows the exact value
+    val active = stops.minByOrNull { abs(kotlin.math.ln(zoom / it)) }
+    Row(
+        modifier.clip(RoundedCornerShape(50)).background(Emu.Ink.copy(alpha = 0.55f)).padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        stops.forEach { z ->
+            val on = z == active
+            val v = if (on) zoom else z
+            val label = (if (v < 1f || v % 1f > 0.05f) "%.1f".format(v) else "%.0f".format(v)) + if (on) "×" else ""
+            Box(
+                Modifier.size(36.dp).clip(RoundedCornerShape(50))
+                    .background(if (on) Emu.Bone.copy(alpha = 0.18f) else Color.Transparent)
+                    .clickable { onZoom(z) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(label, style = Emu.Label.copy(color = if (on) Emu.Amber else Emu.Bone))
+            }
+        }
+    }
 }

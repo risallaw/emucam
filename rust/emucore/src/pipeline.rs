@@ -110,6 +110,26 @@ pub fn render_with_aux(
     hooks: &Hooks,
 ) -> Result<ImageF32, Error> {
     let o = &res.optics;
+    // Fisheye lenses reshape the whole frame first: everything after (blur,
+    // vignette, film) happens in the fisheye image, and aux maps follow it.
+    // Aux maps nothing will read are left alone.
+    let warp = lens::projection::Warp::new(o);
+    let (warped, near_w, veg_w) = match &warp {
+        Some(wp) => (
+            Some(wp.image(src)),
+            near.filter(|_| wants_depth(res))
+                .map(|m| wp.mask(m, src.w, src.h)),
+            veg.filter(|_| wants_veg(res))
+                .map(|m| wp.mask(m, src.w, src.h)),
+        ),
+        None => (None, None, None),
+    };
+    let src = warped.as_ref().unwrap_or(src);
+    let (near, veg) = if warp.is_some() {
+        (near_w.as_ref(), veg_w.as_ref())
+    } else {
+        (near, veg)
+    };
     let g = Geometry::new(src.w, src.h, res.focus_center, res.focus_angle, o.field);
     let dfield = depth_field(src, res, near);
     let film = res.film.as_ref();
@@ -138,6 +158,7 @@ pub fn render_with_aux(
                 img,
                 &FxCtx {
                     seed: *seed,
+                    rotation: res.capture_rotation,
                     negative,
                     mono,
                 },
@@ -154,6 +175,9 @@ pub fn render_with_aux(
     lens::glow(&mut img, o.glow, o.glow_radius);
     lens::veil(&mut img, o.veil);
     lens::vignette(&mut img, o.vignette, &g);
+    if let Some(wp) = &warp {
+        wp.clip_circle(&mut img);
+    }
     run_slot(&mut img, Slot::Optical);
     check(hooks, 0.55)?;
 
@@ -236,5 +260,21 @@ mod tests {
         assert!(!wants("helios-58", false), "user turned depth off");
         assert!(!wants("standard", true), "no blur");
         assert!(!wants("pinhole", true), "no focus plane");
+    }
+
+    /// Veil/glow spread light, but nothing reaches outside a circular
+    /// fisheye's image circle (the preview draws it black too).
+    #[test]
+    fn circular_fisheye_border_stays_black() {
+        let r = Recipe {
+            lens: Some("circular-8".into()),
+            ..Default::default()
+        };
+        let res = resolve(&r, Catalog::builtin()).unwrap();
+        assert!(res.optics.veil > 0.0, "test needs a lens that veils");
+        let src = ImageF32::filled(60, 40, [0.5, 0.5, 0.5]);
+        let out = render(&src, &res, &Hooks::default()).unwrap();
+        assert_eq!(out.get(0, 0), [0.0; 3]);
+        assert!(out.get(30, 20)[0] > 0.3);
     }
 }

@@ -43,6 +43,8 @@ fun SweetSpotReticle(
     onTap: (Offset) -> Unit,
     onGestureEnd: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Double tap: back to the default focus (centre, size, angle). */
+    onReset: () -> Unit = {},
 ) {
     val c by rememberUpdatedState(center)
     val move by rememberUpdatedState(onMove)
@@ -50,11 +52,15 @@ fun SweetSpotReticle(
     val rotate by rememberUpdatedState(onRotate)
     val tap by rememberUpdatedState(onTap)
     val end by rememberUpdatedState(onGestureEnd)
+    val reset by rememberUpdatedState(onReset)
     Canvas(
         modifier
             .fillMaxSize()
             .pointerInput(Unit) {
-                detectTapGestures { p -> tap(Offset(p.x / size.width, p.y / size.height)) }
+                detectTapGestures(
+                    onDoubleTap = { reset() },
+                    onTap = { p -> tap(Offset(p.x / size.width, p.y / size.height)) },
+                )
             }
             .pointerInput(Unit) {
                 awaitEachGesture {

@@ -32,6 +32,12 @@ import kotlin.coroutines.resumeWithException
 data class CameraState(
     val bound: Boolean = false,
     val lensFacing: Int = CameraSelector.LENS_FACING_BACK,
+    /** Current / available zoom (CameraX switches physical lenses: ultra-wide < 1 < tele). */
+    val zoom: Float = 1f,
+    val minZoom: Float = 1f,
+    val maxZoom: Float = 1f,
+    /** 35 mm-equivalent focal length at zoom 1×. */
+    val focal35: Float = CameraController.DEFAULT_FOCAL_35,
     /** Live film/lens preview failed on this device → plain preview fallback. */
     val effectError: String? = null,
     val error: String? = null,
@@ -52,6 +58,9 @@ class CameraController(private val context: Context) {
     private var owner: LifecycleOwner? = null
     private var view: PreviewView? = null
     private var useEffect = true
+    /** Zoom the user / lens asked for; re-applied after every (re)bind. */
+    private var wantedZoom: Float? = null
+    private var wantedFocal: Int? = null
 
     /**
      * Physical device rotation (Surface.ROTATION_*). The activity is locked to
@@ -133,9 +142,23 @@ class CameraController(private val context: Context) {
         val cameraSelector = CameraSelector.Builder().requireLensFacing(_state.value.lensFacing).build()
         try {
             p.unbindAll()
-            camera = p.bindToLifecycle(o, cameraSelector, group.build())
+            camera?.cameraInfo?.zoomState?.removeObservers(o)
+            val cam = p.bindToLifecycle(o, cameraSelector, group.build())
+            camera = cam
             capture = cap
-            _state.value = _state.value.copy(bound = true, error = null)
+            val z = cam.cameraInfo.zoomState.value
+            _state.value = _state.value.copy(
+                bound = true, error = null,
+                focal35 = equivalentFocal(cam),
+                zoom = z?.zoomRatio ?: 1f, minZoom = z?.minZoomRatio ?: 1f, maxZoom = z?.maxZoomRatio ?: 1f,
+            )
+            cam.cameraInfo.zoomState.observe(o) {
+                val rangeKnown = _state.value.maxZoom > _state.value.minZoom
+                _state.value = _state.value.copy(zoom = it.zoomRatio, minZoom = it.minZoomRatio, maxZoom = it.maxZoomRatio)
+                if (!rangeKnown && it.maxZoomRatio > it.minZoomRatio) reapplyWanted()
+            }
+            Log.i(TAG, "bound: zoom ${z?.minZoomRatio}..${z?.maxZoomRatio}, 1× ≈ ${_state.value.focal35} mm")
+            reapplyWanted()
         } catch (t: Throwable) {
             Log.e(TAG, "bind failed", t)
             if (useEffect) {
@@ -156,12 +179,54 @@ class CameraController(private val context: Context) {
         }
     }
 
+    /**
+     * Zoom ratio (clamped to what the camera offers). On multi-camera phones
+     * CameraX moves between the physical lenses: < 1 is the ultra-wide, the
+     * telephotos take over at their native ratios.
+     */
+    fun setZoom(ratio: Float) {
+        wantedZoom = ratio
+        wantedFocal = null
+        val cam = camera ?: return
+        val z = cam.cameraInfo.zoomState.value ?: return
+        cam.cameraControl.setZoomRatio(applicableZoom(ratio, z.minZoomRatio, z.maxZoomRatio) ?: return)
+    }
+
+    private fun reapplyWanted() {
+        val f = wantedFocal
+        if (f != null) matchFocal(f) else wantedZoom?.let { setZoom(it) }
+    }
+
+    /** Frame like a [focalMm] (35 mm-equivalent) lens: the matching zoom. */
+    fun matchFocal(focalMm: Int) {
+        if (focalMm <= 0) return
+        if (camera == null) {
+            wantedFocal = focalMm
+            return
+        }
+        setZoom(zoomForFocal(focalMm.toFloat(), _state.value.focal35))
+        wantedFocal = focalMm
+    }
+
+    @androidx.annotation.OptIn(androidx.camera.camera2.interop.ExperimentalCamera2Interop::class)
+    private fun equivalentFocal(cam: Camera): Float = runCatching {
+        val info = androidx.camera.camera2.interop.Camera2CameraInfo.from(cam.cameraInfo)
+        val focals = info.getCameraCharacteristic(android.hardware.camera2.CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
+        val size = info.getCameraCharacteristic(android.hardware.camera2.CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
+        if (focals == null || size == null) DEFAULT_FOCAL_35 else mainFocal35(focals, size.width, size.height)
+    }.getOrDefault(DEFAULT_FOCAL_35)
+
     /** Tap-to-focus at a normalized point of the preview (0..1). */
     fun focusAt(nx: Float, ny: Float) {
         val v = view ?: return
         val cam = camera ?: return
         val point = v.meteringPointFactory.createPoint(nx * v.width, ny * v.height)
         cam.cameraControl.startFocusAndMetering(FocusMeteringAction.Builder(point).build())
+    }
+
+    /** Drop any tap-to-focus point: back to the camera's continuous autofocus. */
+    fun resetFocus() {
+        camera?.cameraControl?.cancelFocusAndMetering()
     }
 
     /** Capture a full-resolution JPEG to [file]. EXIF orientation is set by CameraX. */
@@ -187,6 +252,26 @@ class CameraController(private val context: Context) {
 
     companion object {
         private const val TAG = "CameraController"
+        const val DEFAULT_FOCAL_35 = 24f
+
+        /**
+         * 35 mm-equivalent focal length of the 1× camera. A logical
+         * multi-camera may list several focal lengths (one per physical
+         * lens); 1× is the main camera, whose equivalent is the one nearest
+         * the usual ~24 mm. Implausible results fall back to 24 mm.
+         */
+        fun mainFocal35(focalsMm: FloatArray, sensorW: Float, sensorH: Float): Float {
+            val diag = kotlin.math.hypot(sensorW, sensorH)
+            if (diag <= 0f || focalsMm.isEmpty()) return DEFAULT_FOCAL_35
+            val eq = focalsMm.map { it * 43.27f / diag }.minBy { kotlin.math.abs(it - DEFAULT_FOCAL_35) }
+            return if (eq in 15f..40f) eq else DEFAULT_FOCAL_35
+        }
+
+        /** [ratio] clamped into the camera's range, or null while that range is unknown or empty. */
+        fun applicableZoom(ratio: Float, min: Float, max: Float): Float? =
+            if (max > min && min > 0f) ratio.coerceIn(min, max) else null
+
+        fun zoomForFocal(focalMm: Float, focal35: Float): Float = focalMm / focal35
 
         /**
          * Sensor degrees → Surface rotation, with ±10° hysteresis around the

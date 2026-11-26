@@ -94,9 +94,10 @@ impl EffectSpec {
             &self.id
         }
     }
+    /// Numeric param; non-finite values (TOML `nan`, `inf`) fall back to the default.
     pub fn f(&self, k: &str, default: f32) -> f32 {
         match self.params.get(k) {
-            Some(toml::Value::Float(v)) => *v as f32,
+            Some(toml::Value::Float(v)) if (*v as f32).is_finite() => *v as f32,
             Some(toml::Value::Integer(v)) => *v as f32,
             _ => default,
         }
@@ -351,6 +352,19 @@ pub enum BlurField {
     Slice,
 }
 
+/// How the lens maps the scene onto the frame.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Projection {
+    /// Ordinary lens: straight lines stay straight.
+    #[default]
+    Rectilinear,
+    /// Full-frame (diagonal) fisheye: equidistant projection filling the frame.
+    Fisheye,
+    /// Circular fisheye: the image circle sits inside the frame, black around it.
+    Circular,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Aperture {
@@ -428,6 +442,12 @@ pub struct LensOptics {
     /// Depth defocus strength: >1 = background goes soft faster.
     #[serde(default = "one")]
     pub depth_scale: f32,
+    #[serde(default)]
+    pub projection: Projection,
+    /// Fisheye curvature: the half-angle (degrees, 5..85) the frame edge
+    /// (diagonal, or circle rim) stands for. Larger = stronger bulge.
+    #[serde(default = "default_fisheye_angle")]
+    pub fisheye_angle: f32,
 }
 impl Default for LensOptics {
     /// Same values as an empty `[optics]` table, so presets and code agree.
@@ -438,6 +458,9 @@ impl Default for LensOptics {
 
 fn default_falloff() -> f32 {
     0.5
+}
+fn default_fisheye_angle() -> f32 {
+    70.0
 }
 fn default_glow_radius() -> f32 {
     0.012

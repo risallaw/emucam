@@ -33,6 +33,13 @@ pub struct Recipe {
     /// Shot seed (grain, leaks). Same seed ⇒ identical output.
     #[serde(default)]
     pub seed: u64,
+    /// How the device was turned when the shot was taken (0..3 =
+    /// Surface.ROTATION_0/90/180/270), viewfinder → photo frame. Placed
+    /// effects and focus are already rotated by the app; effects positioned
+    /// at random in image uv (a body's light leak, prism side) use this so the
+    /// photo matches the portrait viewfinder. 0 = as composed (default).
+    #[serde(default)]
+    pub capture_rotation: u8,
 }
 fn v1() -> u32 {
     RECIPE_VERSION
@@ -122,6 +129,7 @@ impl Default for Recipe {
             effects: vec![],
             disabled_effects: vec![],
             seed: 0,
+            capture_rotation: 0,
         }
     }
 }
@@ -160,6 +168,8 @@ pub struct Resolved {
     pub params: UserParams,
     pub effects: Vec<EffectSpec>,
     pub seed: u64,
+    /// See [`Recipe::capture_rotation`] (0..3).
+    pub capture_rotation: u8,
 }
 
 impl Resolved {
@@ -244,6 +254,7 @@ pub fn resolve(recipe: &Recipe, cat: &Catalog) -> Result<Resolved, Error> {
         params: p.clone(),
         effects: vec![],
         seed: recipe.seed,
+        capture_rotation: recipe.capture_rotation % 4,
     };
 
     // Preset-declared controls mapped onto optics.
@@ -256,6 +267,9 @@ pub fn resolve(recipe: &Recipe, cat: &Catalog) -> Result<Resolved, Error> {
         // Burnside second aperture.
         res.optics.cats_eye = v;
         res.optics.vignette = 0.3 + 0.4 * v;
+    }
+    if let Some(v) = res.value("fisheye_angle") {
+        res.optics.fisheye_angle = v;
     }
     if matches!(res.optics.field, BlurField::None) && res.optics.rmax > 0.0 {
         res.optics.field = BlurField::Uniform;
@@ -335,5 +349,13 @@ mod tests {
         };
         let res = resolve(&r, cat).unwrap();
         assert!(res.effects.iter().all(|e| e.key() != "leak"));
+    }
+
+    #[test]
+    fn capture_rotation_defaults_to_upright_and_is_resolved() {
+        let r = Recipe::from_json(r#"{"lens":"standard"}"#).unwrap();
+        assert_eq!(r.capture_rotation, 0);
+        let r = Recipe::from_json(r#"{"lens":"standard","capture_rotation":5}"#).unwrap();
+        assert_eq!(resolve(&r, Catalog::builtin()).unwrap().capture_rotation, 1);
     }
 }

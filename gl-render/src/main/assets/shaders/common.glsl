@@ -22,6 +22,7 @@ uniform float uCatsEye;
 uniform float uBubble;
 uniform float uOnion;
 uniform float uCaLateral;
+uniform vec3 uProj;             // fisheye: kind (1 full-frame, 2 circular), θmax, tan θmax
 uniform vec2 uGlow;             // strength, radius
 uniform float uVignette;
 uniform float uVeil;
@@ -40,9 +41,13 @@ uniform vec3 uHalation;         // strength, threshold, radius
 uniform vec3 uHalationTint;
 uniform vec3 uGrain;            // amount, size_um, chroma
 uniform float uMono;
-uniform float uSeed;
-uniform vec2 uLeak;             // strength, size
-uniform vec3 uLeakColor;
+// rust effects::leak_blobs of every leak in the recipe (same seeds as the
+// capture), slots = rust preview::PREVIEW_LEAK_SLOTS: centre (uv y down, or
+// along/out from the edge anchor when placed), radius, intensity × strength
+// (0 = unused); colour; placement (deg, image space; 1 = placed)
+uniform vec4 uLeakBlob[8];
+uniform vec3 uLeakCol[8];
+uniform vec2 uLeakPos[8];
 uniform float uFxVignette;
 uniform vec2 uFrame;            // thickness, style
 

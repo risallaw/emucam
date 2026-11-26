@@ -105,6 +105,28 @@ impl ImageF32 {
         o
     }
 
+    /// Sharp (Catmull-Rom) bicubic sample at pixel-space coordinates, for
+    /// geometric remaps that magnify (bilinear looks soft there).
+    pub fn sample_cubic(&self, fx: f32, fy: f32) -> [f32; 3] {
+        let x = fx - 0.5;
+        let y = fy - 0.5;
+        let (x0, y0) = (x.floor(), y.floor());
+        let wx = catmull_rom_weights(x - x0);
+        let wy = catmull_rom_weights(y - y0);
+        let (x0, y0) = (x0 as isize, y0 as isize);
+        let mut o = [0.0f32; 3];
+        for (j, &wyj) in wy.iter().enumerate() {
+            for (i, &wxi) in wx.iter().enumerate() {
+                let p = self.get_clamped(x0 - 1 + i as isize, y0 - 1 + j as isize);
+                let k = wxi * wyj;
+                o[0] += p[0] * k;
+                o[1] += p[1] * k;
+                o[2] += p[2] * k;
+            }
+        }
+        o
+    }
+
     /// Apply a per-pixel function in parallel, giving (x, y, &mut [f32;3]).
     pub fn par_map_pixels<F>(&mut self, f: F)
     where
@@ -225,5 +247,18 @@ pub fn bspline_weights(t: f32) -> [f32; 4] {
         (3.0 * t3 - 6.0 * t2 + 4.0) / 6.0,
         (-3.0 * t3 + 3.0 * t2 + 3.0 * t + 1.0) / 6.0,
         t3 / 6.0,
+    ]
+}
+
+/// Catmull-Rom weights for taps at -1, 0, 1, 2 (sum to 1; interpolating).
+#[inline]
+pub fn catmull_rom_weights(t: f32) -> [f32; 4] {
+    let t2 = t * t;
+    let t3 = t2 * t;
+    [
+        0.5 * (-t3 + 2.0 * t2 - t),
+        0.5 * (3.0 * t3 - 5.0 * t2 + 2.0),
+        0.5 * (-3.0 * t3 + 4.0 * t2 + t),
+        0.5 * (t3 - t2),
     ]
 }

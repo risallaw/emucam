@@ -59,46 +59,186 @@ vec3 hueRotate(vec3 c, float deg) {
     return m * c;
 }
 
+// parity mirror of rust lens::projection::Warp::source (keep identical)
+vec2 fisheyeUv(vec2 uv, out float cover) {
+    vec2 c = 0.5 * uOutSize;
+    float rOut = uProj.x > 1.5 ? 0.5 * min(uOutSize.x, uOutSize.y) : halfDiag();
+    vec2 d = imgPx(uv) - c;
+    float r = length(d);
+    float rho = min(r / rOut, 1.0);
+    float scale = r > 1e-4 ? tan(rho * uProj.y) / uProj.z * rOut / r : uProj.y / uProj.z;
+    cover = uProj.x > 1.5 ? clamp((rOut - r) / max(rOut / 400.0, 1.0) + 0.5, 0.0, 1.0) : 1.0;
+    return uvFromImgPx(c + d * scale);
+}
+
+// parity mirror of rust lens::vignette_factor, at output px
+float lensVignette(vec2 pOut) {
+    if (uVignette <= 0.0) return 1.0;
+    vec2 dv = (pOut - 0.5 * uOutSize) / halfDiag();
+    float f = 1.0 / (1.0 + 1.6 * uVignette * dot(dv, dv));
+    return f * f;
+}
+
+// camera colour as seen at output uv (through the fisheye warp, black outside
+// the image circle), like rust sampling the warped frame
+vec3 camOut(vec2 uv) {
+#ifdef LENS_FISHEYE
+    float cv;
+    vec2 s = fisheyeUv(uv, cv);
+    return cam(s) * cv;
+#else
+    return cam(uv);
+#endif
+}
+
+#ifdef FX_OMNI
+uniform sampler2D uLin;          // half-res linear camera frame, mipmapped (unit 7)
+uniform vec4 uOmni;              // wand, position (deg), reach, strength
+// rust omni refracts the lens-stage image (warped, vignetted); lin is the raw
+// camera frame, so warp and vignette it here
+vec3 omniSrc(vec2 q, float lod) {
+    vec2 uv = uvFromImgPx(q);
+    float k = lensVignette(q);
+#ifdef LENS_FISHEYE
+    float cv;
+    uv = fisheyeUv(uv, cv);
+    k *= cv;
+#endif
+    vec3 s = textureLod(uLin, uv, lod).rgb;
+#ifdef LENS_BLUR
+    // lin holds highlights expanded for the bokeh gather (linearize.frag);
+    // rust omni reads the post-bokeh, compressed image
+    s = compressC(s);
+#endif
+    return s * k;
+}
+// parity mirror of rust effects::omni::Omni (weight + refract; keep identical)
+vec3 omni(vec3 c, vec2 p) {
+    int wand = int(uOmni.x + 0.5);
+    float width = wand == 1 ? 0.75 : (wand == 4 ? 0.55 : (wand == 2 ? 0.35 : (wand == 3 ? 0.4 : 0.3)));
+    float hd = halfDiag();
+    float ang = radians(uOmni.y);
+    float sa = sin(ang), ca = cos(ang);
+    float tx = abs(ca) > 1e-6 ? 0.5 * uOutSize.x / abs(ca) : 1e30;
+    float ty = abs(sa) > 1e-6 ? 0.5 * uOutSize.y / abs(sa) : 1e30;
+    vec2 a = 0.5 * uOutSize + vec2(ca, sa) * min(tx, ty);
+    vec2 n = -vec2(ca, sa);
+    vec2 t = vec2(-n.y, n.x);
+    vec2 d = p - a;
+    float along = dot(d, n) / hd;
+    float across = dot(d, t) / hd;
+    float r = uOmni.z;
+    float acn = across / width;
+    float m = min((1.0 - smoothstep(0.35 * r, r, along)) * exp(-acn * acn * 2.0) * uOmni.w * 0.9, 1.0);
+    if (m <= 1e-3) return c;
+    float qa = 0.5 * r + 0.6 * (0.5 * r - along);
+    // σ = SOFT·hd output px; lin texel = 2 px → mip level of a similar footprint
+    float lod = max(log2(2.5 * 0.012 * hd / 2.0), 0.0);
+    float dsp = 0.006 * hd;
+    vec3 acc = vec3(0.0);
+    for (int i = 0; i < 8; i++) {
+        float s = (float(i) + 0.5) / 8.0 - 0.5;
+        vec2 q2;
+        vec2 disp;
+        if (wand == 1) { q2 = vec2(qa, across + s * 0.16); disp = n; }
+        else if (wand == 2) {
+            float k = float(i % 4) * 1.5707964 + 0.6;
+            float o = 0.05 + 0.02 * float(i / 4);
+            q2 = vec2(qa + sin(k) * o, across + cos(k) * o); disp = t;
+        } else if (wand == 3) {
+            float g = 2.2 * clamp(1.0 - along / r, 0.0, 1.0) + s * 0.35;
+            float sn = sin(g), cs = cos(g);
+            q2 = vec2(qa * cs - across * sn, qa * sn + across * cs); disp = t;
+        } else if (wand == 4) { q2 = vec2(qa, across + s * 0.12); disp = n; }
+        else { q2 = vec2(qa + s * 0.12, across); disp = t; }
+        vec2 q = a + (n * q2.x + t * q2.y) * hd;
+        acc += vec3(omniSrc(q + disp * dsp, lod).r, omniSrc(q, lod).g, omniSrc(q - disp * dsp, lod).b);
+    }
+    vec3 rc = acc / 8.0;
+    if (wand == 4) {
+        float h = 0.5 + across / (2.0 * width);
+        vec3 tint = clamp(abs(fract(h + vec3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0, 0.0, 1.0);
+        rc *= 0.25 + 1.3 * tint;
+    }
+    rc = rc * 1.08 + 0.12 * luma(rc) + 0.01;
+    return mix(c, rc, m);
+}
+#endif
+
+#ifdef FX_LEAK
+// parity mirror of rust effects::{leak_center, LightLeak::apply} (keep identical)
+vec3 leakBlob(vec2 q, float aspect, vec4 b, vec3 col, vec2 pos) {
+    if (b.w <= 0.0) return vec3(0.0);
+    vec2 ctr = b.xy;
+    if (pos.y > 0.5) {
+        // edge_point(position, aspect, 1)
+        float a = radians(pos.x);
+        vec2 o = vec2(cos(a), sin(a));
+        float t = min(abs(o.x) > 1e-6 ? 0.5 * aspect / abs(o.x) : 1e30, abs(o.y) > 1e-6 ? 0.5 / abs(o.y) : 1e30);
+        vec2 an = vec2(0.5 * aspect, 0.5) + o * t;
+        ctr = vec2((an.x - o.y * b.x + o.x * b.y) / aspect, an.y + o.x * b.x + o.y * b.y);
+    }
+    vec2 d = vec2((q.x - ctr.x) * aspect, q.y - ctr.y) / b.z;
+    return col * exp(-dot(d, d) * 2.5) * b.w;
+}
+vec3 leak(vec2 uv) {
+    vec2 q = vec2(uv.x, 1.0 - uv.y);   // image uv, y down
+    float aspect = uOutSize.x / uOutSize.y;
+    vec3 acc = vec3(0.0);
+    for (int k = 0; k < 8; k++) acc += leakBlob(q, aspect, uLeakBlob[k], uLeakCol[k], uLeakPos[k]);
+    return acc;
+}
+#endif
+
 void main() {
-    vec2 p = imgPx(vUv);
+    // uvS: where this output pixel looks in the camera frame (differs for fisheye)
+    vec2 uvS = vUv;
+    float cover = 1.0;
+#ifdef LENS_FISHEYE
+    uvS = fisheyeUv(vUv, cover);
+#endif
+    vec2 p = imgPx(uvS);
+    vec2 pOut = imgPx(vUv);
     vec3 c;
     if (abs(uCaLateral) > 1e-5) {
+        // lateral CA is radial in the output image (rust runs it after the warp)
         vec2 ax = axisPx();
-        vec2 d = p - ax;
+        vec2 d = pOut - ax;
         float rho2 = dot(d, d) / (halfDiag() * halfDiag());
-        c = vec3(cam(uvFromImgPx(ax + d * (1.0 + uCaLateral * rho2))).r, cam(vUv).g,
-                 cam(uvFromImgPx(ax + d * (1.0 - uCaLateral * rho2))).b);
+        c = vec3(camOut(uvFromImgPx(ax + d * (1.0 + uCaLateral * rho2))).r, cam(uvS).g,
+                 camOut(uvFromImgPx(ax + d * (1.0 - uCaLateral * rho2))).b);
     } else {
-        c = cam(vUv);
+        c = cam(uvS);
     }
 #ifdef LENS_BLUR
     float r = coc(p);
-    vec4 lens = texture(uLens, vUv);
+    vec4 lens = texture(uLens, uvS);
     if (r > 0.5) c = mix(c, compressC(lens.rgb), smoothstep(0.5, 1.5, r));
     // sharp pixel: blurred content in front still spreads over it (alpha = coverage)
     else if (lens.a > 0.0) c = mix(c, compressC(lens.rgb), lens.a);
 #endif
-    vec3 wide = texture(uBlur, vUv).rgb;
+    vec3 wide = texture(uBlur, uvS).rgb * cover;
 #ifdef LENS_GLOW
     float g = clamp(uGlow.x, 0.0, 1.0);
     float bloom = smoothstep(0.35, 1.0, luma(wide));
     c = c * (1.0 - 0.55 * g) + wide * 0.55 * g + wide * bloom * g * 0.6;
 #endif
     if (uVeil > 0.0) c = c * (1.0 - 0.5 * uVeil) + vec3(luma(wide)) * uVeil * 0.6;
-    // vignette (lens + fx)
-    vec2 dv = (p - 0.5 * uOutSize) / halfDiag();
+    vec2 dv = (pOut - 0.5 * uOutSize) / halfDiag();
     float r2 = dot(dv, dv);
-    if (uVignette > 0.0) { float f = 1.0 / (1.0 + 1.6 * uVignette * r2); c *= f * f; }
-    if (uFxVignette > 0.0) { float f = 1.0 / (1.0 + 2.5 * uFxVignette * r2 * r2 * 4.0); c *= f; }
+    c *= lensVignette(pOut);
+    c *= cover;
+#ifdef FX_OMNI
+    c = omni(c, pOut);
+#endif
+    // parity mirror of rust effects::Vignette (roundness 1); an exposure-slot
+    // effect, so it also darkens the optical-slot omni
+    if (uFxVignette > 0.0) { float f = 1.0 / (1.0 + 2.5 * uFxVignette * r2 * r2); c *= f; }
 
     vec3 scene = c;
     c *= uExposure;
 #ifdef FX_LEAK
-    {
-        vec2 lc = vec2(1.05, 0.35 + 0.3 * fract(uSeed * 0.618));
-        vec2 dl = (vUv * vec2(uOutSize.x / uOutSize.y, 1.0) - lc * vec2(uOutSize.x / uOutSize.y, 1.0)) / uLeak.y;
-        c += uLeakColor * exp(-dot(dl, dl) * 2.5) * uLeak.x;
-    }
+    c += leak(vUv);
 #endif
 #ifdef FILM
 #ifdef IR
@@ -110,7 +250,7 @@ void main() {
             // parity mirror of rust infrared::masks + gate_by_seg: seg_gate (smoothstep
             // 0.15..0.5 of p_veg) multiplies BOTH the fine and the regional vegetation
             // mask before infrared::gate combines them
-            float s = smoothstep(0.15, 0.5, texture(uVeg, vUv).r);
+            float s = smoothstep(0.15, 0.5, texture(uVeg, uvS).r);
             veg = vegIndex(scene) * s * smoothstep(0.05, 0.35, vegIndex(wide) * s);
         } else {
             veg = vegIndex(scene) * smoothstep(0.05, 0.35, vegIndex(wide));
@@ -141,7 +281,7 @@ void main() {
         float sigmaTrue = uGrain.y / 36000.0 * uOutSize.x;
         float s = max(sigmaTrue, 0.5);
         float amp = uGrain.x * 0.10 * clamp(sigmaTrue / 0.6, 0.15, 1.0) * 1.6;
-        vec2 gp = p / s;
+        vec2 gp = pOut / s;
         float frame = mod(uTime, 64.0);
         vec3 n0 = hash3(gp, frame) - 0.5;
         vec3 n1 = hash3(gp * 0.5 + 17.0, frame + 64.0) - 0.5;

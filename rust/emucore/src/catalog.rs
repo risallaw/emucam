@@ -142,6 +142,7 @@ impl Catalog {
                     "s0": l.optics.s0,
                     "falloff": l.optics.falloff,
                     "blur": l.optics.rmax > 0.0 && l.optics.field != crate::preset::BlurField::None,
+                    "projection": l.optics.projection,
                 })),
                 film: None,
                 lens: None,

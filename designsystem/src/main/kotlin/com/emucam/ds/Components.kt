@@ -41,6 +41,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -284,5 +285,86 @@ fun DevelopBar(progress: Float?, modifier: Modifier = Modifier, color: Color = E
     Canvas(modifier.fillMaxWidth().height(3.dp)) {
         drawRect(Emu.Line)
         if (progress != null) drawRect(color, size = size.copy(width = size.width * progress.coerceIn(0f, 1f)))
+    }
+}
+
+/** [deg] snapped to the nearest of 0/90/180/270 when within 4°, normalized to 0..<360; else null. */
+fun snapAngle(deg: Float): Float? {
+    val n = ((deg % 360f) + 360f) % 360f
+    return listOf(0f, 90f, 180f, 270f, 360f).firstOrNull { abs(it - n) < SNAP_DEG }?.rem(360f)
+}
+
+private const val SNAP_DEG = 4f
+
+/**
+ * Where around the frame something sits (OMNI wand, light leak, …): a ring
+ * like the filter ring on the lens, with the photo frame drawn inside for
+ * orientation. Tap or drag anywhere to swing the knob to that direction.
+ * [deg] is image-space (0 right, 90 bottom, 180 left, 270 top).
+ */
+@Composable
+fun PositionDial(deg: Float, onChange: (Float) -> Unit, modifier: Modifier = Modifier, label: String? = null, dialSize: Dp = 72.dp) {
+    val cb by rememberUpdatedState(onChange)
+    val haptics = LocalHapticFeedback.current
+    var lastSnap by remember { mutableFloatStateOf(-1f) }
+    fun pick(p: Offset, w: Float, h: Float) {
+        val a = Math.toDegrees(kotlin.math.atan2((p.y - h / 2).toDouble(), (p.x - w / 2).toDouble())).toFloat()
+        val n = ((a % 360f) + 360f) % 360f
+        val snapped = snapAngle(n)
+        // one tick when entering a snap point, not on every drag event inside it
+        if (snapped != null && snapped != lastSnap) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        lastSnap = snapped ?: -1f
+        cb(snapped ?: n)
+    }
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            Modifier
+                .size(dialSize)
+                .clip(CircleShape)
+                .background(Emu.Graphite)
+                .pointerInput(Unit) { detectTapGestures { pick(it, size.width.toFloat(), size.height.toFloat()) } }
+                .pointerInput(Unit) {
+                    detectDragGestures { change, _ -> pick(change.position, size.width.toFloat(), size.height.toFloat()) }
+                },
+        ) {
+            Canvas(Modifier.size(dialSize)) {
+                val c = Offset(size.width / 2, size.height / 2)
+                val ringR = size.minDimension / 2 - 7.dp.toPx()
+                drawCircle(Emu.Line, ringR, c, style = Stroke(2.dp.toPx()))
+                // the photo frame (portrait 3:4) inside the ring
+                val fh = ringR * 1.1f
+                val fw = fh * 0.75f
+                drawRect(Emu.Muted, Offset(c.x - fw / 2, c.y - fh / 2), androidx.compose.ui.geometry.Size(fw, fh), style = Stroke(1.dp.toPx()))
+                val r = Math.toRadians(deg.toDouble())
+                val dir = Offset(kotlin.math.cos(r).toFloat(), kotlin.math.sin(r).toFloat())
+                // footprint on the frame side it affects, then the knob on the ring
+                drawLine(Emu.Signal.copy(alpha = 0.6f), c, c + dir * ringR, 1.5.dp.toPx())
+                drawCircle(Emu.Signal.copy(alpha = 0.25f), 12.dp.toPx(), c + dir * ringR)
+                drawCircle(Emu.Bone, 6.dp.toPx(), c + dir * ringR)
+                drawCircle(Emu.Ink, 2.5.dp.toPx(), c + dir * ringR)
+            }
+        }
+        if (label != null) {
+            Spacer(Modifier.height(4.dp))
+            Text(label, style = Emu.Label)
+        }
+    }
+}
+
+/**
+ * Composition guide over the viewfinder: [segments] are (x0, y0, x1, y1)
+ * normalized 0..1. Drawn twice (dark under light) so it reads on any scene.
+ */
+@Composable
+fun GuideOverlay(segments: List<FloatArray>, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val (w, h) = size.width to size.height
+        for (pass in 0..1) {
+            val color = if (pass == 0) Color.Black.copy(alpha = 0.35f) else Emu.Bone.copy(alpha = 0.7f)
+            val stroke = if (pass == 0) 2.5.dp.toPx() else 1.dp.toPx()
+            segments.forEach { s ->
+                drawLine(color, Offset(s[0] * w, s[1] * h), Offset(s[2] * w, s[3] * h), stroke, cap = StrokeCap.Round)
+            }
+        }
     }
 }

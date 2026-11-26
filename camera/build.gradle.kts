@@ -23,4 +23,5 @@ dependencies {
     api(libs.camera.view)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.core.ktx)
+    testImplementation(libs.junit)
 }

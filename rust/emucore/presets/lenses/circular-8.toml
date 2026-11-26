@@ -1,0 +1,22 @@
+id = "circular-8"
+focal = 8
+fstop = 3.5
+[ui]
+name = "8 Circular Fisheye · f/3.5"
+note = "Circular fisheye: the whole view squeezed into a round image circle on a black frame. Best on the ultra-wide camera"
+category = "Fisheye"
+color = "#00897B"
+[[ui.controls]]
+key = "fisheye_angle"
+label = "Curve"
+min = 30.0
+max = 85.0
+default = 64.0
+step = 1.0
+[optics]
+field = "none"
+projection = "circular"
+fisheye_angle = 64.0
+ca_lateral = 0.012
+vignette = 0.35
+veil = 0.05
