@@ -55,11 +55,11 @@ import com.emucam.app.UiState
 import com.emucam.app.ViewfinderViewModel
 import com.emucam.develop.ShotState
 import com.emucam.model.Grid
-import com.emucam.model.OMNI_WANDS
 import com.emucam.model.PLACEABLE_EFFECTS
 import com.emucam.model.effectPosition
 import com.emucam.model.gridSegments
 import com.emucam.model.Omni
+import com.emucam.model.OmniSlot
 import com.emucam.model.omni
 import com.emucam.ds.Chip
 import com.emucam.ds.DetentWheel
@@ -358,55 +358,81 @@ private fun EffectsPanel(s: UiState, vm: ViewfinderViewModel) {
         }
         Spacer(Modifier.height(10.dp))
     }
+    // effects with a place on the frame live under OMNI; the rest are added here
     Text("ADD", style = Emu.Label, modifier = Modifier.padding(horizontal = 14.dp))
     Spacer(Modifier.height(6.dp))
     Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        USER_EFFECTS.forEach { (kind, label) ->
-            val on = s.recipe.effects.any { it["id"]?.toString()?.trim('"') == "user.$kind" }
-            Chip(label, on, { vm.toggleUserEffect(kind) }, accent = Emu.Signal)
+        USER_EFFECTS.filter { (kind, _) -> kind !in PLACEABLE_EFFECTS }.forEach { (kind, label) ->
+            UserEffectChip(s, vm, kind, label)
         }
     }
-    // placed effects: one dial each, to move them around the frame
-    val placed = USER_EFFECTS.mapNotNull { (kind, label) ->
-        s.recipe.effectPosition("user.$kind")?.takeIf { kind in PLACEABLE_EFFECTS }?.let { Triple(kind, label, it) }
+    Spacer(Modifier.height(14.dp))
+    OmniSection(s, vm)
+    Spacer(Modifier.height(6.dp))
+    Text("Some effects (dust, scratches, flare, prism…) appear when the photo develops.", style = Emu.Body, modifier = Modifier.padding(horizontal = 14.dp))
+}
+
+@Composable
+private fun UserEffectChip(s: UiState, vm: ViewfinderViewModel, kind: String, label: String) {
+    val on = s.recipe.effects.any { it["id"]?.toString()?.trim('"') == "user.$kind" }
+    Chip(label, on, { vm.toggleUserEffect(kind) }, accent = Emu.Signal)
+}
+
+/**
+ * OMNI-style ring in front of any lens: two wand mounts (left / right, each
+ * turnable anywhere around the frame) and the light effects that also sit at
+ * a place on the frame (leak, edge fog, prism).
+ */
+@Composable
+private fun OmniSection(s: UiState, vm: ViewfinderViewModel) {
+    Text("OMNI", style = Emu.Label.copy(color = Emu.Signal), modifier = Modifier.padding(horizontal = 14.dp))
+    OmniSlot.entries.forEach { slot ->
+        Spacer(Modifier.height(8.dp))
+        WandMount(s, vm, slot)
     }
+    Spacer(Modifier.height(10.dp))
+    Text("LIGHT", style = Emu.Label, modifier = Modifier.padding(horizontal = 14.dp))
+    Spacer(Modifier.height(6.dp))
+    val light = USER_EFFECTS.filter { (kind, _) -> kind in PLACEABLE_EFFECTS }
+    Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        light.forEach { (kind, label) -> UserEffectChip(s, vm, kind, label) }
+    }
+    val placed = light.mapNotNull { (kind, label) -> s.recipe.effectPosition("user.$kind")?.let { Triple(kind, label, it) } }
     if (placed.isNotEmpty()) {
-        Spacer(Modifier.height(10.dp))
-        Text("PLACE", style = Emu.Label, modifier = Modifier.padding(horizontal = 14.dp))
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(8.dp))
         Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             placed.forEach { (kind, label, deg) ->
                 PositionDial(deg, { vm.placeEffect(kind, it) }, label = label.uppercase(), dialSize = 60.dp)
             }
         }
     }
-    Spacer(Modifier.height(10.dp))
-    OmniSection(s, vm)
-    Spacer(Modifier.height(6.dp))
-    Text("Some effects (dust, scratches, flare, prism…) appear when the photo develops.", style = Emu.Body, modifier = Modifier.padding(horizontal = 14.dp))
 }
 
-/** OMNI-style filter: a crystal / wand in front of any lens, placed around the frame. */
+/** One wand mount: pick a wand (or none), then place it and set reach / strength. */
 @Composable
-private fun OmniSection(s: UiState, vm: ViewfinderViewModel) {
-    val o = s.recipe.omni()
-    Text("OMNI FILTER", style = Emu.Label, modifier = Modifier.padding(horizontal = 14.dp))
+private fun WandMount(s: UiState, vm: ViewfinderViewModel, slot: OmniSlot) {
+    val o = s.recipe.omni(slot)
+    Text(slot.label, style = Emu.Label, modifier = Modifier.padding(horizontal = 14.dp))
     Spacer(Modifier.height(6.dp))
     Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Chip("Off", o == null, { vm.setOmni(null) }, accent = Emu.Signal)
-        OMNI_WANDS.forEach { (id, label) ->
-            Chip(label, o?.wand == id, { vm.setOmni((o ?: Omni()).copy(wand = id)) }, accent = Emu.Signal)
+        Chip("Off", o == null, { vm.setOmni(slot, null) }, accent = Emu.Signal)
+        // grouped: crystal, mirror, film, each led by a small family label
+        s.catalog.wands.groupBy { it.family }.forEach { (family, wands) ->
+            Text(family.uppercase(), style = Emu.Label, modifier = Modifier.align(Alignment.CenterVertically).padding(start = 8.dp))
+            wands.forEach { w ->
+                Chip(w.label, o?.wand == w.id, { vm.setOmni(slot, (o ?: Omni(position = slot.defaultPosition)).copy(wand = w.id)) }, accent = Emu.Signal)
+            }
         }
     }
     if (o == null) return
     Spacer(Modifier.height(8.dp))
     Row(Modifier.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-        PositionDial(o.position, { vm.setOmni(o.copy(position = it)) }, label = "PLACE")
+        // the dial / wheels keep their first callback while shown: update the live wand, not `o`
+        PositionDial(o.position, { p -> vm.updateOmni(slot) { it.copy(position = p) } }, label = "PLACE")
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            // DetentWheel keeps its first onChange while shown: update the live filter, not `o`
-            DetentWheel("Reach", o.reach, 0.15f, 1f, 0.05f, 0.45f, { "%.0f%%".format(it * 100) }, { v -> vm.updateOmni { it.copy(reach = v) } })
-            DetentWheel("Strength", o.strength, 0f, 1.5f, 0.05f, 1f, { "%.0f%%".format(it * 100) }, { v -> vm.updateOmni { it.copy(strength = v) } })
+            DetentWheel("Reach", o.reach, 0.15f, 1f, 0.05f, 0.45f, { "%.0f%%".format(it * 100) }, { v -> vm.updateOmni(slot) { it.copy(reach = v) } })
+            DetentWheel("Strength", o.strength, 0f, 1.5f, 0.05f, 1f, { "%.0f%%".format(it * 100) }, { v -> vm.updateOmni(slot) { it.copy(strength = v) } })
         }
     }
 }

@@ -90,6 +90,28 @@ class RecipeTest {
     }
 
     @Test
+    fun leftAndRightWandsAreIndependent() {
+        val l = Omni(wand = "gold", position = 180f)
+        val r = Omni(wand = "rods", position = 0f)
+        val both = Recipe().withOmni(l, OmniSlot.LEFT).withOmni(r, OmniSlot.RIGHT)
+        assertEquals(2, both.effects.size)
+        assertEquals(l, both.omni(OmniSlot.LEFT))
+        assertEquals(r, both.omni(OmniSlot.RIGHT))
+        // changing one leaves the other alone, and order stays stable
+        val moved = both.updateOmni(OmniSlot.LEFT) { it.copy(reach = 0.9f) }
+        assertEquals(r, moved.omni(OmniSlot.RIGHT))
+        assertEquals(0.9f, moved.omni(OmniSlot.LEFT)!!.reach)
+        assertEquals(both.effects.map { it["id"] }, moved.effects.map { it["id"] })
+        assertEquals(null, both.withOmni(null, OmniSlot.LEFT).omni(OmniSlot.LEFT))
+        assertEquals(r, both.withOmni(null, OmniSlot.LEFT).omni())
+        // both wands turn with the device
+        val shot = both.forCaptureRotation(1)
+        assertEquals(90f, shot.omni(OmniSlot.LEFT)!!.position)
+        assertEquals(270f, shot.omni(OmniSlot.RIGHT)!!.position)
+        assertEquals(Recipe.fromJson(both.toJson()), both)
+    }
+
+    @Test
     fun omniPositionFollowsDeviceRotation() {
         val r = Recipe().withOmni(Omni(position = 10f))
         assertEquals(10f, r.forCaptureRotation(0).omni()!!.position)

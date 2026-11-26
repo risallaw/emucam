@@ -132,8 +132,9 @@ fun Recipe.withEffectPosition(id: String, deg: Float): Recipe =
 
 /**
  * OMNI-style creative filter held in front of the lens (Rust effect kind
- * "omni"): [wand] is one of [OMNI_WANDS], [position] degrees around the frame
- * (0 right, 90 bottom, 180 left, 270 top), [reach] how far it intrudes.
+ * "omni"): [wand] is one of the catalog's wands, [position] degrees around
+ * the frame (0 right, 90 bottom, 180 left, 270 top), [reach] how far it
+ * intrudes. A recipe holds up to one per [OmniSlot].
  */
 data class Omni(
     val wand: String = "rods",
@@ -142,46 +143,45 @@ data class Omni(
     val strength: Float = 1f,
 )
 
-const val OMNI_ID = "user.omni"
-
-/** Wand id → label. */
-val OMNI_WANDS = listOf(
-    "rods" to "Crystal rods",
-    "cylinder" to "Cylinder",
-    "facet" to "Facet",
-    "swirl" to "Swirl",
-    "rainbow" to "Rainbow",
-)
+/**
+ * The two wand mounts on the OMNI ring. RIGHT keeps the original single-wand
+ * id so older recipes load into it; either can be turned anywhere.
+ */
+enum class OmniSlot(val id: String, val label: String, val defaultPosition: Float) {
+    LEFT("user.omni.left", "LEFT WAND", 180f),
+    RIGHT("user.omni", "RIGHT WAND", 0f),
+}
 
 private fun JsonObject.str(k: String) = (this[k] as? JsonPrimitive)?.content
 private fun JsonObject.num(k: String) = (this[k] as? JsonPrimitive)?.floatOrNull
 
-fun Recipe.omni(): Omni? {
-    val e = effects.firstOrNull { it.str("id") == OMNI_ID } ?: return null
+fun Recipe.omni(slot: OmniSlot = OmniSlot.RIGHT): Omni? {
+    val e = effects.firstOrNull { it.str("id") == slot.id } ?: return null
     val p = runCatching { e["params"]?.jsonObject }.getOrNull() ?: JsonObject(emptyMap())
     val d = Omni()
     return Omni(
         wand = p.str("wand") ?: d.wand,
-        position = p.num("position") ?: d.position,
+        position = p.num("position") ?: slot.defaultPosition,
         reach = p.num("reach") ?: d.reach,
         strength = e.num("strength") ?: d.strength,
     )
 }
 
 /**
- * This recipe with its OMNI filter changed by [f] (no-op when it is off).
- * Reads the filter from this recipe, not from a copy a UI callback captured
+ * This recipe with the [slot] wand changed by [f] (no-op when it is off).
+ * Reads the wand from this recipe, not from a copy a UI callback captured
  * earlier, so changing one setting never reverts the others.
  */
-fun Recipe.updateOmni(f: (Omni) -> Omni): Recipe = omni()?.let { withOmni(f(it)) } ?: this
+fun Recipe.updateOmni(slot: OmniSlot = OmniSlot.RIGHT, f: (Omni) -> Omni): Recipe =
+    omni(slot)?.let { withOmni(f(it), slot) } ?: this
 
-/** This recipe with the OMNI filter set to [o], or removed when null. */
-fun Recipe.withOmni(o: Omni?): Recipe {
-    val rest = effects.filterNot { it.str("id") == OMNI_ID }
+/** This recipe with the [slot] wand set to [o], or removed when null. */
+fun Recipe.withOmni(o: Omni?, slot: OmniSlot = OmniSlot.RIGHT): Recipe {
+    val rest = effects.filterNot { it.str("id") == slot.id }
     if (o == null) return copy(effects = rest)
     val e = buildJsonObject {
         put("kind", JsonPrimitive("omni"))
-        put("id", JsonPrimitive(OMNI_ID))
+        put("id", JsonPrimitive(slot.id))
         put("strength", JsonPrimitive(o.strength))
         put("params", buildJsonObject {
             put("wand", JsonPrimitive(o.wand))
@@ -190,7 +190,7 @@ fun Recipe.withOmni(o: Omni?): Recipe {
         })
     }
     // keep its place in the list so effect order (and seeds) stay stable
-    val i = effects.indexOfFirst { it.str("id") == OMNI_ID }
+    val i = effects.indexOfFirst { it.str("id") == slot.id }
     return copy(effects = if (i < 0) rest + e else effects.toMutableList().also { it[i] = e })
 }
 

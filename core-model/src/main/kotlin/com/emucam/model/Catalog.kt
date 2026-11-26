@@ -11,6 +11,8 @@ data class Catalog(
     val bodies: List<CatalogEntry> = emptyList(),
     val shapes: List<String> = emptyList(),
     @SerialName("effect_kinds") val effectKinds: List<String> = emptyList(),
+    /** OMNI wands the engine knows (id + label), in display order. */
+    val wands: List<WandEntry> = emptyList(),
 ) {
     fun film(id: String?) = films.firstOrNull { it.id == id }
     fun lens(id: String?) = lenses.firstOrNull { it.id == id }
@@ -20,6 +22,14 @@ data class Catalog(
         fun fromJson(s: String): Catalog = EmuJson.decodeFromString(serializer(), s)
     }
 }
+
+@Serializable
+data class WandEntry(
+    val id: String,
+    val label: String,
+    /** "crystal" | "mirror" | "film" (UI grouping). */
+    val family: String = "crystal",
+)
 
 @Serializable
 data class CatalogEntry(

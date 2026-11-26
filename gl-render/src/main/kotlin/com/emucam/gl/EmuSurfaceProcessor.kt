@@ -96,7 +96,9 @@ class EmuSurfaceProcessor(
         val st = SurfaceTexture(oesTex)
         st.setDefaultBufferSize(request.resolution.width, request.resolution.height)
         val surface = Surface(st)
-        surfaceTexture?.release()
+        // the previous input is released by its own provideSurface callback once
+        // the camera has stopped using it; releasing it here abandoned it under
+        // frames still queued for it (rebind → "SurfaceTexture is abandoned")
         surfaceTexture = st
         inputSurface = surface
         st.setOnFrameAvailableListener({ drawFrame(it) }, handler)
@@ -124,9 +126,18 @@ class EmuSurfaceProcessor(
         if (released || failed) return
         val e = egl ?: return
         val r = renderer ?: return
+        // a frame queued for an input the camera has since replaced (rebind)
+        if (st !== surfaceTexture) return
         try {
             e.makeCurrentPbuffer()
             st.updateTexImage()
+        } catch (t: RuntimeException) {
+            // input torn down under us (rebind, background): skip the frame; only
+            // a failure to render is a reason to give up on the live look
+            Log.w(TAG, "skipped camera frame: ${t.message}")
+            return
+        }
+        try {
             st.getTransformMatrix(texMatrix)
             val cfg = config.get() ?: return
             val lp = live.get()

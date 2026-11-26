@@ -16,6 +16,7 @@ import com.emucam.develop.Shot
 import com.emucam.gl.LiveParams
 import com.emucam.model.Grid
 import com.emucam.model.Omni
+import com.emucam.model.OmniSlot
 import com.emucam.model.PLACEABLE_EFFECTS
 import com.emucam.model.withEffectPosition
 import com.emucam.model.forCaptureRotation
@@ -237,11 +238,11 @@ class ViewfinderViewModel(private val app: EmucamApp) : ViewModel() {
     /** Move a placed user effect (light leak, fog, prism) around the frame. */
     fun placeEffect(kind: String, deg: Float) = recipe.update { it.withEffectPosition("user.$kind", deg) }
 
-    /** Set, change or (null) remove the OMNI filter. */
-    fun setOmni(o: Omni?) = recipe.update { it.withOmni(o) }
+    /** Set, change or (null) remove the OMNI wand on [slot]. */
+    fun setOmni(slot: OmniSlot, o: Omni?) = recipe.update { it.withOmni(o, slot) }
 
-    /** Change one OMNI setting on the current filter (safe from stale UI callbacks). */
-    fun updateOmni(f: (Omni) -> Omni) = recipe.update { it.updateOmni(f) }
+    /** Change one setting of the [slot] wand (safe from stale UI callbacks). */
+    fun updateOmni(slot: OmniSlot, f: (Omni) -> Omni) = recipe.update { it.updateOmni(slot, f) }
 
     fun userEffectOn(kind: String) = recipe.value.effects.any { (it["id"] as? JsonPrimitive)?.content == "user.$kind" }
 

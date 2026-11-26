@@ -93,7 +93,10 @@ vec3 camOut(vec2 uv) {
 
 #ifdef FX_OMNI
 uniform sampler2D uLin;          // half-res linear camera frame, mipmapped (unit 7)
-uniform vec4 uOmni;              // wand, position (deg), reach, strength
+uniform vec4 uOmni[2];           // per wand: mode, position (deg), reach, strength (0 = unused)
+uniform vec4 uOmniTint[2];       // tint rgb, band half-width
+uniform vec4 uOmniTint2[2];      // tint2 rgb, spectral (1) or gradient (0)
+uniform float uOmniFire[2];      // dispersion of bright light
 // rust omni refracts the lens-stage image (warped, vignetted); lin is the raw
 // camera frame, so warp and vignette it here
 vec3 omniSrc(vec2 q, float lod) {
@@ -112,12 +115,25 @@ vec3 omniSrc(vec2 q, float lod) {
 #endif
     return s * k;
 }
+vec3 spectrumRgb(float h) {
+    return clamp(abs(fract(h + vec3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0, 0.0, 1.0);
+}
+// rust omni::diamond_tex / omni::hole
+float omniDiamond(float al, float ac) {
+    return 0.5 * (abs(2.0 * fract((al + ac) / 0.05) - 1.0) + abs(2.0 * fract((al - ac) / 0.05) - 1.0));
+}
+float omniHole(float al, float ac) {
+    vec2 uv = fract(vec2(al, ac) / 0.09) - 0.5;
+    return 1.0 - smoothstep(0.006, 0.042, length(uv) * 0.09);
+}
 // parity mirror of rust effects::omni::Omni (weight + refract; keep identical)
-vec3 omni(vec3 c, vec2 p) {
-    int wand = int(uOmni.x + 0.5);
-    float width = wand == 1 ? 0.75 : (wand == 4 ? 0.55 : (wand == 2 ? 0.35 : (wand == 3 ? 0.4 : 0.3)));
+vec3 omni(vec3 c, vec2 p, int k) {
+    vec4 W = uOmni[k];
+    if (W.w <= 0.0) return c;
+    int mode = int(W.x + 0.5);
+    float width = uOmniTint[k].w;
     float hd = halfDiag();
-    float ang = radians(uOmni.y);
+    float ang = radians(W.y);
     float sa = sin(ang), ca = cos(ang);
     float tx = abs(ca) > 1e-6 ? 0.5 * uOutSize.x / abs(ca) : 1e30;
     float ty = abs(sa) > 1e-6 ? 0.5 * uOutSize.y / abs(sa) : 1e30;
@@ -127,39 +143,66 @@ vec3 omni(vec3 c, vec2 p) {
     vec2 d = p - a;
     float along = dot(d, n) / hd;
     float across = dot(d, t) / hd;
-    float r = uOmni.z;
+    float r = W.z;
     float acn = across / width;
-    float m = min((1.0 - smoothstep(0.35 * r, r, along)) * exp(-acn * acn * 2.0) * uOmni.w * 0.9, 1.0);
+    float m = (1.0 - smoothstep(0.35 * r, r, along)) * exp(-acn * acn * 2.0);
+    if (mode == 9) m *= 1.0 - omniHole(along, across);
+    else if (mode == 13) m *= smoothstep(0.2, 0.45, abs(acn));
+    m = min(m * W.w * 0.9, 1.0);
     if (m <= 1e-3) return c;
     float qa = 0.5 * r + 0.6 * (0.5 * r - along);
     // σ = SOFT·hd output px; lin texel = 2 px → mip level of a similar footprint
     float lod = max(log2(2.5 * 0.012 * hd / 2.0), 0.0);
     float dsp = 0.006 * hd;
     vec3 acc = vec3(0.0);
+    vec3 fire = vec3(0.0);
     for (int i = 0; i < 8; i++) {
         float s = (float(i) + 0.5) / 8.0 - 0.5;
         vec2 q2;
         vec2 disp;
-        if (wand == 1) { q2 = vec2(qa, across + s * 0.16); disp = n; }
-        else if (wand == 2) {
-            float k = float(i % 4) * 1.5707964 + 0.6;
+        if (mode == 6) {
+            float cell = floor(across / 0.1);
+            q2 = vec2(along + s * 0.02, cell * 0.1 * 0.35 + (across - cell * 0.1)); disp = t;
+        } else if (mode == 7) { q2 = vec2(along * 0.9, across * 0.4 + s * 0.25); disp = t; }
+        else if (mode == 8) {
+            float cr = 0.45 * r;
+            float dl = along - cr;
+            float rr = length(vec2(dl, across)) / width;
+            float kb = 0.35 + 0.5 * rr * rr + s * 0.03;
+            q2 = vec2(cr - dl * kb, across * kb); disp = n;
+        } else if (mode == 10) {
+            float tx = omniDiamond(along, across);
+            q2 = vec2(along + 0.02 * tx + s * 0.01, across + 0.02 * (1.0 - tx)); disp = t;
+        } else if (mode == 11) { q2 = vec2(along, across + s * 0.01); disp = t; }
+        else if (mode == 12) {
+            bool ev = i % 2 == 0;
+            q2 = vec2(qa * (ev ? 1.0 : 0.6) + s * 0.02, across + (ev ? 0.08 : -0.08)); disp = n;
+        } else if (mode == 5) { q2 = vec2(qa + 0.05 * sin(across * 40.0 + s * 6.0), across + s * 0.1); disp = n; }
+        else if (mode == 1) { q2 = vec2(qa, across + s * 0.16); disp = n; }
+        else if (mode == 2 || mode == 13) {
+            float kk = float(i % 4) * 1.5707964 + 0.6;
             float o = 0.05 + 0.02 * float(i / 4);
-            q2 = vec2(qa + sin(k) * o, across + cos(k) * o); disp = t;
-        } else if (wand == 3) {
+            q2 = vec2(qa + sin(kk) * o, across + cos(kk) * o); disp = t;
+        } else if (mode == 3) {
             float g = 2.2 * clamp(1.0 - along / r, 0.0, 1.0) + s * 0.35;
             float sn = sin(g), cs = cos(g);
             q2 = vec2(qa * cs - across * sn, qa * sn + across * cs); disp = t;
-        } else if (wand == 4) { q2 = vec2(qa, across + s * 0.12); disp = n; }
+        } else if (mode == 4 || mode == 9) { q2 = vec2(qa, across + s * 0.12); disp = n; }
         else { q2 = vec2(qa + s * 0.12, across); disp = t; }
         vec2 q = a + (n * q2.x + t * q2.y) * hd;
-        acc += vec3(omniSrc(q + disp * dsp, lod).r, omniSrc(q, lod).g, omniSrc(q - disp * dsp, lod).b);
+        vec3 mid = omniSrc(q, lod);
+        acc += vec3(omniSrc(q + disp * dsp, lod).r, mid.g, omniSrc(q - disp * dsp, lod).b);
+        float y = luma(mid);
+        fire += spectrumRgb((float(i) + 0.5) / 8.0) * (smoothstep(0.6, 1.0, y) * y);
     }
     vec3 rc = acc / 8.0;
-    if (wand == 4) {
-        float h = 0.5 + across / (2.0 * width);
-        vec3 tint = clamp(abs(fract(h + vec3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0, 0.0, 1.0);
-        rc *= 0.25 + 1.3 * tint;
-    }
+    float h = 0.5 + across / (2.0 * width);
+    vec3 tint = uOmniTint2[k].w > 0.5
+        ? 0.25 + 1.3 * spectrumRgb(h)
+        : mix(uOmniTint[k].rgb, uOmniTint2[k].rgb, clamp(h, 0.0, 1.0));
+    float fm = (fire.r + fire.g + fire.b) / 3.0;
+    float tex = mode == 10 ? 0.85 + 0.3 * omniDiamond(along, across) : 1.0;
+    rc = max(rc * tint * tex + uOmniFire[k] * 3.0 / 8.0 * (fire - fm), 0.0);
     rc = rc * 1.08 + 0.12 * luma(rc) + 0.01;
     return mix(c, rc, m);
 }
@@ -229,7 +272,8 @@ void main() {
     c *= lensVignette(pOut);
     c *= cover;
 #ifdef FX_OMNI
-    c = omni(c, pOut);
+    c = omni(c, pOut, 0);
+    c = omni(c, pOut, 1);
 #endif
     // parity mirror of rust effects::Vignette (roundness 1); an exposure-slot
     // effect, so it also darkens the optical-slot omni

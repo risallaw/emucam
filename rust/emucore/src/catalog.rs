@@ -170,6 +170,10 @@ impl Catalog {
             "bodies": bodies,
             "shapes": crate::lens::aperture::SHAPE_IDS,
             "effect_kinds": crate::effects::KINDS,
+            "wands": crate::effects::omni::WANDS
+                .iter()
+                .map(|w| serde_json::json!({ "id": w.id, "label": w.label, "family": w.family }))
+                .collect::<Vec<_>>(),
         })
         .to_string()
     }

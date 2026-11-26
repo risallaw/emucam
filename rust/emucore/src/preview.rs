@@ -23,6 +23,8 @@ pub struct PreviewParams {
 
 /// Light-leak blob slots in `final.frag` (`uLeakBlob[]`), shared by all the
 /// recipe's leaks: two or three leaks of up to [`crate::effects::LEAK_MAX_BLOBS`].
+/// OMNI wands the live preview draws (left + right).
+pub const PREVIEW_OMNI_SLOTS: usize = 2;
 pub const PREVIEW_LEAK_SLOTS: usize = 8;
 
 fn u(m: &mut BTreeMap<String, Vec<f32>>, k: &str, v: &[f32]) {
@@ -158,6 +160,7 @@ pub fn params(res: &Resolved) -> PreviewParams {
     let mut fx_vig = 0.0;
     let mut frame = [0.0f32; 2];
     let mut leak: Vec<([f32; 4], [f32; 3], [f32; 2])> = vec![];
+    let mut omnis: Vec<crate::effects::omni::Omni> = vec![];
     for (i, e) in res.effects.iter().enumerate() {
         match e.kind.as_str() {
             "vignette" => fx_vig += e.strength,
@@ -169,15 +172,7 @@ pub fn params(res: &Resolved) -> PreviewParams {
                     _ => 0.0,
                 };
             }
-            "omni" => {
-                let o = crate::effects::omni::Omni::from_spec(e);
-                defines.push("FX_OMNI".into());
-                u(
-                    &mut m,
-                    "uOmni",
-                    &[o.wand as f32, o.position, o.reach, o.strength],
-                );
-            }
+            "omni" => omnis.push(crate::effects::omni::Omni::from_spec(e)),
             "light_leak" => {
                 defines.push("FX_LEAK".into());
                 // the exact blobs the capture draws: same generator, same seed
@@ -210,6 +205,41 @@ pub fn params(res: &Resolved) -> PreviewParams {
             u(&mut m, &format!("uLeakBlob[{k}]"), &b);
             u(&mut m, &format!("uLeakCol[{k}]"), &col);
             u(&mut m, &format!("uLeakPos[{k}]"), &pos);
+        }
+    }
+    if !omnis.is_empty() {
+        defines.push("FX_OMNI".into());
+        if omnis.len() > PREVIEW_OMNI_SLOTS {
+            eprintln!(
+                "preview: {} omni wands, showing {PREVIEW_OMNI_SLOTS}",
+                omnis.len()
+            );
+        }
+        // every slot always uploaded (unused: strength 0), as for leaks
+        for k in 0..PREVIEW_OMNI_SLOTS {
+            let (a, b, c) = omnis.get(k).map_or(
+                ([0.0; 4], [1.0, 1.0, 1.0, 0.3], [1.0, 1.0, 1.0, 0.0]),
+                |o| {
+                    (
+                        [o.mode as f32, o.position, o.reach, o.strength],
+                        [o.tint[0], o.tint[1], o.tint[2], o.width],
+                        [
+                            o.tint2[0],
+                            o.tint2[1],
+                            o.tint2[2],
+                            if o.spectral { 1.0 } else { 0.0 },
+                        ],
+                    )
+                },
+            );
+            u(&mut m, &format!("uOmni[{k}]"), &a);
+            u(&mut m, &format!("uOmniTint[{k}]"), &b);
+            u(&mut m, &format!("uOmniTint2[{k}]"), &c);
+            u(
+                &mut m,
+                &format!("uOmniFire[{k}]"),
+                &[omnis.get(k).map_or(0.0, |o| o.fire)],
+            );
         }
     }
     u(&mut m, "uFxVignette", &[fx_vig]);

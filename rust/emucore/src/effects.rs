@@ -373,9 +373,20 @@ impl Effect for Prism {
         let angle = position(&self.0)
             .unwrap_or_else(|| rotate_deg(self.0.f("angle", random), ctx.rotation))
             .to_radians();
+        // spread of the spectrum along the shift (uv), like a real prism's dispersion
+        let spread = self.0.f("dispersion", 0.035).clamp(0.0, 0.2);
         let soft = blur::Blurred::new(img, img.w as f32 * 0.004);
         let (dxn, dyn_) = (angle.cos(), angle.sin());
         let (w, h) = (img.w, img.h);
+        // per-tap hue weights, normalised per channel so flat areas keep their colour
+        let sp: [[f32; 3]; PRISM_TAPS] =
+            std::array::from_fn(|k| omni::spectrum((k as f32 + 0.5) / PRISM_TAPS as f32));
+        let mut norm = [0.0f32; 3];
+        for c in &sp {
+            for k in 0..3 {
+                norm[k] += c[k];
+            }
+        }
         img.par_map_pixels(|x, y, p| {
             let u = (x as f32 + 0.5) / w as f32;
             let v = (y as f32 + 0.5) / h as f32;
@@ -385,17 +396,36 @@ impl Effect for Prism {
             if m <= 0.0 {
                 return;
             }
-            let su = u - dxn * shift;
-            let sv = v - dyn_ * shift;
-            let e = soft.sample_uv(su.clamp(0.0, 1.0), sv.clamp(0.0, 1.0));
-            // each pixel only reads itself from `img`, so no source copy is needed
+            // the ghost is split by wavelength: each tap is shifted a little
+            // further and carries one hue, so edges fringe and a light source
+            // fans into a rainbow; bright taps add extra spectral flare
+            let mut e = [0.0f32; 3];
+            let mut fl = [0.0f32; 3];
+            for (i, c) in sp.iter().enumerate() {
+                let f = shift + spread * ((i as f32 + 0.5) / PRISM_TAPS as f32 - 0.5);
+                let su = (u - dxn * f).clamp(0.0, 1.0);
+                let sv = (v - dyn_ * f).clamp(0.0, 1.0);
+                let g = soft.sample_uv(su, sv);
+                let y = luma(g);
+                let hl = smoothstep(0.6, 1.2, y) * y;
+                for k in 0..3 {
+                    e[k] += c[k] * g[k];
+                    fl[k] += c[k] * hl;
+                }
+            }
+            // flare: only its colour, so an evenly bright sky is not lifted
+            let fl = [0, 1, 2].map(|k| fl[k] / norm[k]);
+            let fm = (fl[0] + fl[1] + fl[2]) / 3.0;
             for c in 0..3 {
-                // rainbow fringe: offset channels slightly
-                p[c] = mix(p[c], 0.5 * p[c] + 0.6 * e[c], m);
+                let ghost = e[c] / norm[c];
+                p[c] = (mix(p[c], 0.5 * p[c] + 0.6 * ghost, m) + 1.5 * m * (fl[c] - fm)).max(0.0);
             }
         });
     }
 }
+
+/// Hue taps of the prism ghost.
+const PRISM_TAPS: usize = 7;
 
 // ------------------------------------------------------------ emulsion slot
 
@@ -749,6 +779,50 @@ mod placement_tests {
             lift(&all, 40, 0) > 0.05 && lift(&all, 40, 59) > 0.05,
             "unplaced fog keeps every edge"
         );
+    }
+
+    #[test]
+    fn prism_splits_a_light_source_into_a_rainbow() {
+        let run = |lamp: bool| {
+            let mut img = ImageF32::filled(120, 80, [0.08, 0.08, 0.08]);
+            if lamp {
+                for y in 36..44 {
+                    for x in 40..48 {
+                        img.set(x, y, [4.0, 4.0, 4.0]);
+                    }
+                }
+            }
+            let spec: EffectSpec =
+                toml::from_str("kind = \"prism\"\n[params]\nposition = 0.0").unwrap();
+            build(&spec).unwrap().apply(
+                &mut img,
+                &FxCtx {
+                    rotation: 0,
+                    seed: 1,
+                    negative: false,
+                    mono: false,
+                },
+            );
+            img
+        };
+        let lit = run(true);
+        let mut spread = 0.0f32;
+        for x in 60..120 {
+            let c = lit.get(x, 40);
+            spread = spread.max(c[0].max(c[1]).max(c[2]) - c[0].min(c[1]).min(c[2]));
+        }
+        assert!(
+            spread > 0.15,
+            "ghost of the light should be a rainbow: {spread}"
+        );
+        let dark = run(false);
+        for x in (0..120).step_by(7) {
+            let c = dark.get(x, 40);
+            assert!(
+                (c[0] - c[2]).abs() < 1e-4 && (c[0] - c[1]).abs() < 1e-4,
+                "flat scene stays neutral: {c:?}"
+            );
+        }
     }
 
     #[test]
